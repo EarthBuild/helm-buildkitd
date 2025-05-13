@@ -1,22 +1,66 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
+	"time" // Added for Kubernetes operations timeout
 )
 
 const (
 	listenAddr    = ":8080"
 	targetSvcAddr = "localhost:8273" // Placeholder, will be configurable
+
+	// Placeholder K8s values for testing
+	kubeNamespace     = "default"
+	kubeStatefulSet   = "buildkitd-statefulset" // Example name
+	kubeTestScaling   = false                   // Set to true to test scaling functions
+	kubeTestTargetRep = int32(1)                // Example target replica count for scaling
 )
 
 var activeConnections atomic.Int64
 
 func main() {
+	// Initialize Kubernetes client
+	clientset, err := InitKubeClient()
+	if err != nil {
+		log.Printf("Failed to initialize Kubernetes client: %v. Proceeding without K8s features.", err)
+		// Depending on requirements, you might choose to Fatalf here if K8s is essential
+	} else {
+		log.Println("Successfully initialized Kubernetes client.")
+
+		// Placeholder: Get StatefulSet status
+		status, err := GetStatefulSetStatus(clientset, kubeNamespace, kubeStatefulSet)
+		if err != nil {
+			log.Printf("Failed to get status for StatefulSet %s/%s: %v", kubeNamespace, kubeStatefulSet, err)
+		} else {
+			log.Printf("Status for StatefulSet %s/%s: Desired=%d, Current=%d, Ready=%d",
+				kubeNamespace, kubeStatefulSet, status.DesiredReplicas, status.CurrentReplicas, status.ReadyReplicas)
+		}
+
+		if kubeTestScaling {
+			// Placeholder: Scale StatefulSet (example: scale to kubeTestTargetRep)
+			log.Printf("Attempting to scale StatefulSet %s/%s to %d replicas...", kubeNamespace, kubeStatefulSet, kubeTestTargetRep)
+			_, err = ScaleStatefulSet(clientset, kubeNamespace, kubeStatefulSet, kubeTestTargetRep)
+			if err != nil {
+				log.Printf("Failed to scale StatefulSet %s/%s: %v", kubeNamespace, kubeStatefulSet, err)
+			} else {
+				log.Printf("Successfully initiated scaling for StatefulSet %s/%s to %d replicas.", kubeNamespace, kubeStatefulSet, kubeTestTargetRep)
+
+				// Placeholder: Wait for readiness after scaling
+				log.Printf("Waiting for StatefulSet %s/%s to reach %d ready replicas...", kubeNamespace, kubeStatefulSet, kubeTestTargetRep)
+				err = WaitForStatefulSetReady(clientset, kubeNamespace, kubeStatefulSet, kubeTestTargetRep, 5*time.Minute) // 5 minute timeout
+				if err != nil {
+					log.Printf("Error waiting for StatefulSet %s/%s to become ready: %v", kubeNamespace, kubeStatefulSet, err)
+				} else {
+					log.Printf("StatefulSet %s/%s is ready with %d replicas.", kubeNamespace, kubeStatefulSet, kubeTestTargetRep)
+				}
+			}
+		}
+	}
+
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatalf("Failed to listen on %s: %v", listenAddr, err)
