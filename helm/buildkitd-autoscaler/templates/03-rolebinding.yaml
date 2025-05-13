@@ -1,0 +1,17 @@
+{{- if .Values.rbac.create }}
+apiVersion: {{ include "buildkitd-autoscaler.rbac.apiVersion" . }}
+kind: RoleBinding
+metadata:
+  name: {{ include "buildkitd-autoscaler.fullname" . }}-rb
+  namespace: {{ include "buildkitd-autoscaler.namespace" . }}
+  labels:
+    {{- include "buildkitd-autoscaler.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "buildkitd-autoscaler.serviceAccountName" . }}
+  namespace: {{ include "buildkitd-autoscaler.namespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "buildkitd-autoscaler.fullname" . }}-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

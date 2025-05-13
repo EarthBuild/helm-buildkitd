@@ -1,0 +1,10 @@
+{{- if and .Values.namespace.create .Values.namespaceOverride }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "buildkitd-autoscaler.namespace" . }}
+  labels:
+    {{- include "buildkitd-autoscaler.labels" . | nindent 4 }}
+    # You can add more specific labels for the namespace if needed
+    # example.com/component: "autoscaler-system"
+{{- end }}

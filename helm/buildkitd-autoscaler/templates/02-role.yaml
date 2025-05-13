@@ -1,0 +1,18 @@
+{{- if .Values.rbac.create }}
+apiVersion: {{ include "buildkitd-autoscaler.rbac.apiVersion" . }}
+kind: Role
+metadata:
+  name: {{ include "buildkitd-autoscaler.fullname" . }}-role
+  namespace: {{ include "buildkitd-autoscaler.namespace" . }}
+  labels:
+    {{- include "buildkitd-autoscaler.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+# Optional: Add "pods" if deeper inspection is ever needed.
+# You could make this conditional based on a value in values.yaml if desired.
+# - apiGroups: [""]
+#   resources: ["pods"]
+#   verbs: ["get", "list", "watch"]
+{{- end }}

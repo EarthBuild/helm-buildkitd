@@ -54,43 +54,69 @@ docker build -t your-repo/buildkitd-autoscaler:latest .
 
 Remember to replace `your-repo` with your actual Docker repository/namespace. It's recommended to use a specific version tag instead of `latest` for production deployments.
 
-## Deployment
+## Deployment (Helm Chart)
 
-The service is designed to be deployed to a Kubernetes cluster. Manifests are provided in the [`deploy/kubernetes/`](deploy/kubernetes/05-service.yaml) directory.
+The service is best deployed to a Kubernetes cluster using the provided Helm chart.
 
-1.  **Namespace (Optional):**
-    If you want to deploy the autoscaler and its RBAC components into a dedicated namespace (e.g., `buildkitd-scaler-system` as defined in [`00-namespace.yaml`](deploy/kubernetes/00-namespace.yaml:1)), apply it first:
+**Prerequisites:**
+*   Helm CLI installed.
+*   A running Kubernetes cluster.
+*   Your Docker image for the autoscaler pushed to a container registry.
+
+**Chart Location:**
+The Helm chart is located in the `helm/buildkitd-autoscaler/` directory.
+
+**Installation Steps:**
+
+1.  **Configure Values:**
+    *   The primary way to configure the chart is by creating a custom `values.yaml` file or by setting values via the `--set` flag during installation.
+    *   Navigate to the chart directory: `cd helm/buildkitd-autoscaler/`
+    *   Review `values.yaml` for all available options. Key values you will likely need to customize:
+        *   `image.repository`: Set this to your Docker image repository (e.g., `your-dockerhub-username/buildkitd-autoscaler`).
+        *   `image.tag`: Set this to the tag of your Docker image (e.g., `v1.0.0` or the specific commit SHA).
+        *   `namespaceOverride`: If you want to install the chart into a specific namespace (e.g., `buildkitd-scaler-system`), set this value. If `namespace.create` is true, Helm will attempt to create this namespace.
+        *   `autoscalerConfig.buildkitdStatefulSetName`: Name of your target buildkitd StatefulSet.
+        *   `autoscalerConfig.buildkitdStatefulSetNamespace`: Namespace where your buildkitd StatefulSet resides. This is important for the autoscaler to find and manage the correct StatefulSet.
+        *   `autoscalerConfig.buildkitdHeadlessServiceName`: Name of the headless service for your buildkitd StatefulSet.
+        *   `autoscalerConfig.buildkitdTargetPort`: The gRPC port your buildkitd instances listen on.
+        *   `service.type`, `service.port`: How the autoscaler proxy itself is exposed.
+        *   `resources`: Adjust CPU/memory requests and limits for the autoscaler pod.
+
+2.  **Install the Chart:**
+    Once you have your configuration ready (e.g., in a `my-custom-values.yaml` file or as `--set` parameters):
     ```bash
-    kubectl apply -f deploy/kubernetes/00-namespace.yaml
+    # Example installation:
+    helm install my-buildkitd-autoscaler ./helm/buildkitd-autoscaler \
+      --namespace buildkitd-scaler-system \
+      --create-namespace \
+      -f my-custom-values.yaml # Optional: if you have a custom values file
     ```
-    If you use a different namespace, ensure you update the `RoleBinding` and `Deployment` manifests accordingly.
+    *   Replace `my-buildkitd-autoscaler` with your desired release name.
+    *   Replace `buildkitd-scaler-system` with your target namespace.
+    *   If not using a custom values file, use `--set` for each parameter you need to override, for example:
+        ```bash
+        helm install my-buildkitd-autoscaler ./helm/buildkitd-autoscaler \
+          --namespace buildkitd-scaler-system \
+          --create-namespace \
+          --set image.repository=your-repo/buildkitd-autoscaler \
+          --set image.tag=v0.1.0 \
+          --set autoscalerConfig.buildkitdStatefulSetNamespace=default \
+          --set autoscalerConfig.buildkitdStatefulSetName=buildkitd
+        ```
 
-2.  **Update Image Name:**
-    Before applying the deployment manifest, update the image name in [`deploy/kubernetes/04-deployment.yaml`](deploy/kubernetes/04-deployment.yaml:1) to point to the image you built and pushed to your registry:
-    ```yaml
-    # In deploy/kubernetes/04-deployment.yaml
-    spec:
-      template:
-        spec:
-          containers:
-          - name: buildkitd-autoscaler
-            image: your-repo/buildkitd-autoscaler:your-tag # <-- UPDATE THIS
-    ```
-    **Important:** For production, use a specific image tag (e.g., `your-repo/buildkitd-autoscaler:v1.0.0`) instead of `latest`.
+**Upgrading the Chart:**
+```bash
+helm upgrade my-buildkitd-autoscaler ./helm/buildkitd-autoscaler \
+  --namespace buildkitd-scaler-system \
+  -f my-custom-values.yaml # Or using --set
+```
 
-3.  **Review Configuration in Manifests:**
-    *   Ensure the `BUILDKITD_STATEFULSET_NAME`, `BUILDKITD_STATEFULSET_NAMESPACE`, `BUILDKITD_HEADLESS_SERVICE_NAME`, and `BUILDKITD_TARGET_PORT` environment variables in [`deploy/kubernetes/04-deployment.yaml`](deploy/kubernetes/04-deployment.yaml:1) match your `buildkitd` setup.
-    *   If you are not using the `buildkitd-scaler-system` namespace, update the namespace in all relevant manifests (ServiceAccount, Role, RoleBinding, Deployment, Service).
+**Uninstalling the Chart:**
+```bash
+helm uninstall my-buildkitd-autoscaler --namespace buildkitd-scaler-system
+```
 
-4.  **Apply Manifests:**
-    Apply all manifests. If you are using the `buildkitd-scaler-system` namespace and have updated the image:
-    ```bash
-    kubectl apply -R -f deploy/kubernetes/
-    ```
-    If you are deploying to a different namespace, you might need to apply them individually or adjust the `kubectl apply -R` command after modifying namespaces in the YAML files. For example, if deploying to the `default` namespace (and assuming your buildkitd is also in `default`):
-    *   Update `RoleBinding` to reference the `default` namespace for the `ServiceAccount`.
-    *   Update `Deployment` and `Service` to reside in the `default` namespace.
-    *   Then apply: `kubectl apply -R -f deploy/kubernetes/ -n default` (or your target namespace).
+*(The old manual deployment instructions using raw Kubernetes manifests from `deploy/kubernetes/` are now superseded by the Helm chart. The `deploy/kubernetes/` directory can be removed after confirming the Helm chart is satisfactory.)*
 
 ## Usage
 
