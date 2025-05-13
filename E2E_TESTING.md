@@ -4,11 +4,11 @@ This document outlines the steps for manual E2E testing of the `buildkitd-autosc
 
 ## 1. Prerequisites
 
-*   **Docker:** Ensure Docker is installed and running.
-*   **Local Kubernetes Cluster:** A local Kubernetes cluster is required. Examples include:
-    *   [Kind (Kubernetes in Docker)](https://kind.sigs.k8s.io/)
-    *   [Minikube](https://minikube.sigs.k8s.io/docs/start/)
-*   **kubectl:** The Kubernetes command-line tool, configured to interact with your local cluster.
+* **Docker:** Ensure Docker is installed and running.
+* **Local Kubernetes Cluster:** A local Kubernetes cluster is required. Examples include:
+  * [Kind (Kubernetes in Docker)](https://kind.sigs.k8s.io/)
+  * [Minikube](https://minikube.sigs.k8s.io/docs/start/)
+* **kubectl:** The Kubernetes command-line tool, configured to interact with your local cluster.
 
 ## 2. Build the Docker Image
 
@@ -92,15 +92,17 @@ kubectl apply -f mock-buildkitd.yaml
 ## 5. Update Autoscaler Deployment Configuration
 
 Modify the autoscaler's Kubernetes deployment manifest ([`deploy/kubernetes/04-deployment.yaml`](deploy/kubernetes/04-deployment.yaml:1)) to:
-*   Use the test image: `your-repo/buildkitd-autoscaler:dev`
-*   Point to the mock `buildkitd` StatefulSet and Service:
-    *   `BUILDKITD_STATEFULSET_NAME`: `mock-buildkitd`
-    *   `BUILDKITD_HEADLESS_SERVICE_NAME`: `mock-buildkitd-headless`
-    *   `BUILDKITD_TARGET_PORT`: `1234`
-    *   `BUILDKITD_NAMESPACE`: `default` (or your test namespace)
-*   Optionally, adjust `SCALE_DOWN_IDLE_TIMEOUT` for faster testing (e.g., `30s`).
+
+* Use the test image: `your-repo/buildkitd-autoscaler:dev`
+* Point to the mock `buildkitd` StatefulSet and Service:
+  * `BUILDKITD_STATEFULSET_NAME`: `mock-buildkitd`
+  * `BUILDKITD_HEADLESS_SERVICE_NAME`: `mock-buildkitd-headless`
+  * `BUILDKITD_TARGET_PORT`: `1234`
+  * `BUILDKITD_NAMESPACE`: `default` (or your test namespace)
+* Optionally, adjust `SCALE_DOWN_IDLE_TIMEOUT` for faster testing (e.g., `30s`).
 
 Example snippet from `04-deployment.yaml` (modify the `env` section):
+
 ```yaml
 # ...
 spec:
@@ -138,6 +140,7 @@ kubectl apply -f deploy/kubernetes/ --recursive
 ```
 
 Ensure the `buildkitd-proxy-autoscaler` pod is running:
+
 ```bash
 kubectl get pods -n <namespace-of-autoscaler> -w
 ```
@@ -150,6 +153,7 @@ Port-forward from your local machine to the `buildkitd-proxy-svc` to send test c
 kubectl port-forward svc/buildkitd-proxy-svc <local_port>:80 -n <namespace-of-autoscaler>
 # Example: kubectl port-forward svc/buildkitd-proxy-svc 8080:80 -n buildkitd-proxy
 ```
+
 Replace `<local_port>` with an available port on your machine (e.g., 8080) and `<namespace-of-autoscaler>` with the namespace where the autoscaler is deployed.
 
 ## 8. Test Scale-Up
@@ -161,11 +165,13 @@ nc localhost <local_port>
 # Example: nc localhost 8080
 ```
 
-*   **Observe:** The `buildkitd-proxy-autoscaler` logs should indicate a new connection and scaling up.
-*   **Verify:** Check the `mock-buildkitd` StatefulSet replicas:
+* **Observe:** The `buildkitd-proxy-autoscaler` logs should indicate a new connection and scaling up.
+* **Verify:** Check the `mock-buildkitd` StatefulSet replicas:
+
     ```bash
     kubectl get statefulset mock-buildkitd -n default -w # Or your test namespace
     ```
+
     The replicas should scale from 0 to 1.
 
 ## 9. Test Proxying (Basic)
@@ -176,11 +182,13 @@ While `nc` is connected, type some text and press Enter. The `socat` container i
 
 Close the `nc` connection (e.g., by pressing `Ctrl+C` in the `nc` terminal).
 
-*   **Observe:** The `buildkitd-proxy-autoscaler` logs should indicate the connection closed and the scale-down idle timer starting.
-*   **Verify:** After the `SCALE_DOWN_IDLE_TIMEOUT` duration, check the `mock-buildkitd` StatefulSet replicas again:
+* **Observe:** The `buildkitd-proxy-autoscaler` logs should indicate the connection closed and the scale-down idle timer starting.
+* **Verify:** After the `SCALE_DOWN_IDLE_TIMEOUT` duration, check the `mock-buildkitd` StatefulSet replicas again:
+
     ```bash
     kubectl get statefulset mock-buildkitd -n default -w
     ```
+
     The replicas should scale down from 1 to 0.
 
 ## 11. Cleanup
@@ -194,6 +202,7 @@ kubectl delete -k deploy/kubernetes/ # Or delete individual resources
 ```
 
 If you loaded images into Kind/Minikube and want to remove them:
+
 ```bash
 # Kind
 kind delete cluster --name <your-kind-cluster-name> # If you want to delete the whole cluster
@@ -203,3 +212,4 @@ kind delete cluster --name <your-kind-cluster-name> # If you want to delete the 
 minikube image rm your-repo/buildkitd-autoscaler:dev
 # minikube stop
 # minikube delete
+```
