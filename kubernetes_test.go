@@ -26,7 +26,9 @@ const (
 	testBuildkitdPort = "1234"
 )
 
-// Helper to create a new StatefulSet object for testing
+// newTestStatefulSet is a helper function to create a new appsv1.StatefulSet object
+// with specified name, namespace, and replica count. It's used for setting up
+// test scenarios with fake Kubernetes clients.
 func newTestStatefulSet(name, namespace string, replicas int32) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -44,6 +46,9 @@ func newTestStatefulSet(name, namespace string, replicas int32) *appsv1.Stateful
 	}
 }
 
+// TestGetStatefulSetStatus_Found tests the GetStatefulSetStatus function
+// when the StatefulSet exists and is found by the client.
+// It verifies that the returned status matches the mock StatefulSet's data.
 func TestGetStatefulSetStatus_Found(t *testing.T) {
 	clientset := fake.NewSimpleClientset(newTestStatefulSet(testStsName, testNamespace, 3))
 	status, err := GetStatefulSetStatus(clientset, testNamespace, testStsName)
@@ -62,6 +67,9 @@ func TestGetStatefulSetStatus_Found(t *testing.T) {
 	}
 }
 
+// TestGetStatefulSetStatus_NotFound tests the GetStatefulSetStatus function
+// when the specified StatefulSet does not exist.
+// It checks that an error is returned and that the error indicates a "not found" condition.
 func TestGetStatefulSetStatus_NotFound(t *testing.T) {
 	clientset := fake.NewSimpleClientset() // No objects
 	_, err := GetStatefulSetStatus(clientset, testNamespace, testStsName)
@@ -83,6 +91,9 @@ func TestGetStatefulSetStatus_NotFound(t *testing.T) {
 	}
 }
 
+// TestScaleStatefulSet_Success tests the ScaleStatefulSet function for a successful scaling operation.
+// It uses a fake client with a reactor to simulate a successful patch operation
+// and verifies that the returned StatefulSet reflects the updated replica count.
 func TestScaleStatefulSet_Success(t *testing.T) {
 	initialReplicas := int32(1)
 	targetReplicas := int32(3)
@@ -115,6 +126,9 @@ func TestScaleStatefulSet_Success(t *testing.T) {
 	}
 }
 
+// TestScaleStatefulSet_Error tests the ScaleStatefulSet function when the Kubernetes API
+// returns an error during the patch operation.
+// It verifies that the function propagates the error correctly.
 func TestScaleStatefulSet_Error(t *testing.T) {
 	clientset := fake.NewSimpleClientset(newTestStatefulSet(testStsName, testNamespace, 1))
 
@@ -133,6 +147,9 @@ func TestScaleStatefulSet_Error(t *testing.T) {
 	}
 }
 
+// TestWaitForStatefulSetReady_BecomesReady tests the WaitForStatefulSetReady function
+// when the StatefulSet eventually reaches the desired ready replica count.
+// It uses a reactor to simulate the StatefulSet's status changing over multiple polls.
 func TestWaitForStatefulSetReady_BecomesReady(t *testing.T) {
 	sts := newTestStatefulSet(testStsName, testNamespace, 0) // Start with 0 ready
 	clientset := fake.NewSimpleClientset(sts)
@@ -168,6 +185,9 @@ func TestWaitForStatefulSetReady_BecomesReady(t *testing.T) {
 	}
 }
 
+// TestWaitForStatefulSetReady_Timeout tests the WaitForStatefulSetReady function
+// when the StatefulSet does not become ready within the specified timeout.
+// It verifies that a timeout error (context.DeadlineExceeded or similar) is returned.
 func TestWaitForStatefulSetReady_Timeout(t *testing.T) {
 	sts := newTestStatefulSet(testStsName, testNamespace, 0) // Start with 0, never becomes ready
 	sts.Spec.Replicas = int32Ptr(1)                          // Controller desires 1
@@ -194,6 +214,9 @@ func TestWaitForStatefulSetReady_Timeout(t *testing.T) {
 	}
 }
 
+// TestWaitForStatefulSetReady_NotFoundInitiallyThenAppears tests the scenario where
+// the StatefulSet is initially not found, but then appears and becomes ready.
+// This simulates cases where the StatefulSet is being created during the polling period.
 func TestWaitForStatefulSetReady_NotFoundInitiallyThenAppears(t *testing.T) {
 	clientset := fake.NewSimpleClientset() // STS doesn't exist initially
 	expectedReadyReplicas := int32(1)
@@ -221,7 +244,8 @@ func TestWaitForStatefulSetReady_NotFoundInitiallyThenAppears(t *testing.T) {
 	}
 }
 
-// Helper for pointer to int32
+// int32Ptr is a helper function that returns a pointer to an int32 value.
+// Useful for setting pointer fields in Kubernetes API objects.
 func int32Ptr(i int32) *int32 { return &i }
 
 // Mock homeDir for InitKubeClient tests if needed, or ensure KUBECONFIG_PATH is set.
@@ -251,6 +275,12 @@ func int32Ptr(i int32) *int32 { return &i }
 // Note: The global `logger` variable is used by kubernetes.go.
 // For tests, it's initialized here to avoid nil pointer dereferences if slog.Default() isn't set up.
 // A better approach for testability would be to pass the logger into the functions in kubernetes.go.
+// TestMain is used to perform global setup for tests in this package.
+// Here, it initializes a default logger to `io.Discard` to prevent panics
+// in tested functions that might use the global logger instance if it's not
+// otherwise initialized (e.g., if slog.SetDefault hasn't been called).
+// This is a workaround for the global logger pattern used in main.go.
+// A more robust approach would involve dependency injection for the logger.
 func TestMain(m *testing.M) {
 	// Setup default logger to avoid panics in tested functions if they call logger directly
 	// and it hasn't been initialized (e.g. if slog.SetDefault hasn't been called in main).

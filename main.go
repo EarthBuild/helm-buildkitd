@@ -18,6 +18,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// homeDir returns the home directory for the current user.
+// It checks the HOME environment variable first, then USERPROFILE for Windows.
 func homeDir() string {
 	if h := os.Getenv("HOME"); h != "" {
 		return h
@@ -25,38 +27,61 @@ func homeDir() string {
 	return os.Getenv("USERPROFILE") // windows
 }
 
+// Application constants defining default values for configuration parameters.
 const (
-	// Default K8s and Buildkitd configuration
-	defaultProxyListenAddr          = ":8080"
+	// defaultProxyListenAddr is the default address and port the proxy will listen on.
+	defaultProxyListenAddr = ":8080"
+	// defaultBuildkitdStatefulSetName is the default name of the BuildKitd StatefulSet.
 	defaultBuildkitdStatefulSetName = "buildkitd"
-	defaultBuildkitdNamespace       = "default"
-	defaultBuildkitdTargetPort      = "8273" // String for FQDN construction
+	// defaultBuildkitdNamespace is the default Kubernetes namespace for the BuildKitd StatefulSet.
+	defaultBuildkitdNamespace = "default"
+	// defaultBuildkitdTargetPort is the default target port on BuildKitd pods.
+	defaultBuildkitdTargetPort = "8273" // String for FQDN construction
+	// defaultBuildkitdHeadlessSvcName is the default name of the BuildKitd headless service.
 	defaultBuildkitdHeadlessSvcName = "buildkitd-headless"
-	defaultScaleDownIdleTimeoutStr  = "2m0s"
-	waitForReadyTimeout             = 5 * time.Minute
+	// defaultScaleDownIdleTimeoutStr is the default string representation of the idle timeout before scaling down.
+	defaultScaleDownIdleTimeoutStr = "2m0s"
+	// waitForReadyTimeout is the duration to wait for the StatefulSet to become ready after scaling.
+	waitForReadyTimeout = 5 * time.Minute
 )
 
-// Global configuration variables
+// Global configuration variables, populated from command-line flags or environment variables.
 var (
-	proxyListenAddr          string
+	// proxyListenAddr is the address and port the proxy listens on.
+	proxyListenAddr string
+	// buildkitdStatefulSetName is the name of the BuildKitd StatefulSet to manage.
 	buildkitdStatefulSetName string
-	buildkitdNamespace       string
+	// buildkitdNamespace is the Kubernetes namespace of the BuildKitd StatefulSet.
+	buildkitdNamespace string
+	// buildkitdHeadlessSvcName is the name of the BuildKitd headless service used for DNS discovery.
 	buildkitdHeadlessSvcName string
-	buildkitdTargetPort      string
-	scaleDownIdleTimeout     time.Duration
-	kubeconfigPath           string
+	// buildkitdTargetPort is the target port on the BuildKitd pods to proxy connections to.
+	buildkitdTargetPort string
+	// scaleDownIdleTimeout is the duration of inactivity before scaling down BuildKitd to zero replicas.
+	scaleDownIdleTimeout time.Duration
+	// kubeconfigPath is the path to the kubeconfig file, used for out-of-cluster development.
+	kubeconfigPath string
 )
 
-// Global runtime variables
+// Global runtime variables used by the application.
 var (
-	kubeClientset         *kubernetes.Clientset
+	// kubeClientset is the Kubernetes API client.
+	kubeClientset *kubernetes.Clientset
+	// activeConnectionCount tracks the number of currently active proxied connections.
 	activeConnectionCount atomic.Int64
-	scaleDownTimer        *time.Timer
-	scaleDownTimerMutex   sync.Mutex
-	logger                *slog.Logger   // New global logger
-	shutdownWg            sync.WaitGroup // WaitGroup for graceful shutdown
+	// scaleDownTimer is a timer that triggers scaling down to zero replicas when no connections are active for scaleDownIdleTimeout.
+	scaleDownTimer *time.Timer
+	// scaleDownTimerMutex protects access to scaleDownTimer.
+	scaleDownTimerMutex sync.Mutex
+	// logger is the structured logger for the application.
+	logger *slog.Logger // New global logger
+	// shutdownWg is a WaitGroup to ensure graceful shutdown of active connections.
+	shutdownWg sync.WaitGroup // WaitGroup for graceful shutdown
 )
 
+// main is the entry point of the buildkitd-autoscaler application.
+// It initializes configuration, sets up the Kubernetes client, starts the TCP proxy listener,
+// and handles graceful shutdown.
 func main() {
 	// Initialize logger
 	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})) // Using Debug level for more verbose output during dev
@@ -204,6 +229,10 @@ func main() {
 	logger.Info("Exited connection accept loop.")
 }
 
+// handleConnection manages an incoming client connection.
+// It increments the active connection count, potentially scales up buildkitd if it's the first connection
+// and buildkitd is at zero replicas, proxies data between the client and the target buildkitd pod,
+// and decrements the active connection count upon completion. It also manages the scale-down timer.
 func handleConnection(clientConn net.Conn) {
 	defer shutdownWg.Done() // Decrement for graceful shutdown when connection handling finishes
 

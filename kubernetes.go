@@ -20,8 +20,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// InitKubeClient initializes and returns a Kubernetes clientset (concrete type).
-// The functions using the clientset will accept kubernetes.Interface.
+// InitKubeClient initializes and returns a Kubernetes clientset.
+// It first attempts to use in-cluster configuration. If that fails, it falls back
+// to out-of-cluster configuration using the provided kubeconfigPath.
+// If kubeconfigPath is empty, it attempts to use default kubeconfig locations (e.g., ~/.kube/config).
 func InitKubeClient(kubeconfigPath string) (*kubernetes.Clientset, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -54,8 +56,8 @@ type StatefulSetStatus struct {
 	ReadyReplicas   int32
 }
 
-// GetStatefulSetStatus fetches the target buildkitd StatefulSet object and
-// returns its replica status.
+// GetStatefulSetStatus fetches the specified StatefulSet from the Kubernetes API
+// and returns a StatefulSetStatus struct containing its desired, current, and ready replica counts.
 func GetStatefulSetStatus(clientset kubernetes.Interface, namespace, statefulSetName string) (*StatefulSetStatus, error) {
 	sts, err := clientset.AppsV1().StatefulSets(namespace).Get(context.TODO(), statefulSetName, metav1.GetOptions{})
 	if err != nil {
@@ -73,7 +75,9 @@ func GetStatefulSetStatus(clientset kubernetes.Interface, namespace, statefulSet
 	return status, nil
 }
 
-// ScaleStatefulSet modifies the spec.replicas field of the buildkitd StatefulSet.
+// ScaleStatefulSet scales the specified StatefulSet to the targetReplicas count.
+// It uses a strategic merge patch to update the .spec.replicas field.
+// It returns the updated StatefulSet object or an error if the patch fails.
 func ScaleStatefulSet(clientset kubernetes.Interface, namespace, statefulSetName string, targetReplicas int32) (*appsv1.StatefulSet, error) {
 	patchPayload := []byte(fmt.Sprintf(`{"spec":{"replicas":%d}}`, targetReplicas))
 
@@ -84,8 +88,9 @@ func ScaleStatefulSet(clientset kubernetes.Interface, namespace, statefulSetName
 	return sts, nil
 }
 
-// WaitForStatefulSetReady waits for the StatefulSet's status.readyReplicas
-// to reach expectedReadyReplicas within the given timeout.
+// WaitForStatefulSetReady polls the status of the specified StatefulSet until its
+// readyReplicas count meets or exceeds expectedReadyReplicas, or until the timeout is reached.
+// It also checks for stability by ensuring currentReplicas and desiredReplicas match readyReplicas.
 func WaitForStatefulSetReady(clientset kubernetes.Interface, namespace, statefulSetName string, expectedReadyReplicas int32, timeout time.Duration) error {
 	return wait.PollImmediate(time.Second*5, timeout, func() (bool, error) {
 		status, err := GetStatefulSetStatus(clientset, namespace, statefulSetName)

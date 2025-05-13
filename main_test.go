@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-// Helper function to reset flags and environment variables for testing
+// resetFlagsAndEnv is a test helper function to clean up global state before each test.
+// It resets command-line arguments, clears relevant environment variables,
+// and resets global configuration variables to their zero values.
+// This ensures test isolation for configuration loading tests.
 func resetFlagsAndEnv(t *testing.T) {
 	t.Helper()
 	// Reset standard command-line arguments
@@ -40,9 +43,12 @@ func resetFlagsAndEnv(t *testing.T) {
 	kubeconfigPath = "" // Assuming defaultKubeconfig logic will repopulate if necessary
 }
 
-// This is a simplified version of the config loading logic from main()
-// It's hard to test main() directly due to its side effects (listening, k8s client init).
-// This helper simulates the core config loading part.
+// loadConfigForTest simulates the configuration loading logic from the main() function.
+// It takes a slice of strings representing command-line arguments,
+// sets up a new FlagSet, registers flags, parses arguments,
+// applies environment variable overrides, and parses the idle timeout duration.
+// This allows testing the configuration precedence (defaults, flags, env vars)
+// without the side effects of the full main() function (e.g., starting listeners, K8s client).
 func loadConfigForTest(testArgs []string) error {
 	// Create a new FlagSet for this specific test execution
 	fs := flag.NewFlagSet("testConfig", flag.ContinueOnError)
@@ -98,6 +104,8 @@ func loadConfigForTest(testArgs []string) error {
 	return err
 }
 
+// TestConfigLoading_Defaults verifies that configuration variables are correctly
+// initialized with their default values when no flags or environment variables are provided.
 func TestConfigLoading_Defaults(t *testing.T) {
 	resetFlagsAndEnv(t)
 
@@ -140,6 +148,8 @@ func TestConfigLoading_Defaults(t *testing.T) {
 	}
 }
 
+// TestConfigLoading_Flags checks if configuration variables are correctly set
+// using command-line flags.
 func TestConfigLoading_Flags(t *testing.T) {
 	resetFlagsAndEnv(t)
 
@@ -181,6 +191,8 @@ func TestConfigLoading_Flags(t *testing.T) {
 	}
 }
 
+// TestConfigLoading_EnvVars ensures that configuration variables are correctly
+// set from environment variables.
 func TestConfigLoading_EnvVars(t *testing.T) {
 	resetFlagsAndEnv(t)
 
@@ -220,6 +232,8 @@ func TestConfigLoading_EnvVars(t *testing.T) {
 	}
 }
 
+// TestConfigLoading_EnvVarOverridesFlag tests the precedence logic, specifically
+// that environment variables override values set by command-line flags.
 func TestConfigLoading_EnvVarOverridesFlag(t *testing.T) {
 	resetFlagsAndEnv(t)
 
@@ -258,6 +272,9 @@ func TestConfigLoading_EnvVarOverridesFlag(t *testing.T) {
 	}
 }
 
+// TestConfigLoading_InvalidIdleTimeout checks that an error is returned
+// when an invalid duration string is provided for the idle timeout,
+// both via command-line flag and environment variable.
 func TestConfigLoading_InvalidIdleTimeout(t *testing.T) {
 	resetFlagsAndEnv(t)
 	testArgs := []string{"-idle-timeout=invalid"}
