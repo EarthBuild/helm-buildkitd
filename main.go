@@ -1,133 +1,258 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog" // New import
 	"net"
+	"os"
+	"os/signal" // New import
+	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall" // New import
 	"time"
 
 	"k8s.io/client-go/kubernetes"
 )
 
+func homeDir() string {
+	if h := os.Getenv("HOME"); h != "" {
+		return h
+	}
+	return os.Getenv("USERPROFILE") // windows
+}
+
 const (
-	listenAddr = ":8080"
-	// Default K8s and Buildkitd configuration (hardcoded for now)
+	// Default K8s and Buildkitd configuration
+	defaultProxyListenAddr          = ":8080"
 	defaultBuildkitdStatefulSetName = "buildkitd"
 	defaultBuildkitdNamespace       = "default"
 	defaultBuildkitdTargetPort      = "8273" // String for FQDN construction
 	defaultBuildkitdHeadlessSvcName = "buildkitd-headless"
-	defaultScaleDownIdleTimeout     = 2 * time.Minute
+	defaultScaleDownIdleTimeoutStr  = "2m0s"
 	waitForReadyTimeout             = 5 * time.Minute
 )
 
-// Global variables
+// Global configuration variables
 var (
-	kubeClientset            *kubernetes.Clientset
+	proxyListenAddr          string
 	buildkitdStatefulSetName string
 	buildkitdNamespace       string
-	buildkitdTargetPort      string
 	buildkitdHeadlessSvcName string
+	buildkitdTargetPort      string
 	scaleDownIdleTimeout     time.Duration
+	kubeconfigPath           string
+)
 
+// Global runtime variables
+var (
+	kubeClientset         *kubernetes.Clientset
 	activeConnectionCount atomic.Int64
 	scaleDownTimer        *time.Timer
 	scaleDownTimerMutex   sync.Mutex
+	logger                *slog.Logger   // New global logger
+	shutdownWg            sync.WaitGroup // WaitGroup for graceful shutdown
 )
 
 func main() {
-	// Initialize configurable parameters (hardcoded for now)
-	buildkitdStatefulSetName = defaultBuildkitdStatefulSetName
-	buildkitdNamespace = defaultBuildkitdNamespace
-	buildkitdTargetPort = defaultBuildkitdTargetPort
-	buildkitdHeadlessSvcName = defaultBuildkitdHeadlessSvcName
-	scaleDownIdleTimeout = defaultScaleDownIdleTimeout
+	// Initialize logger
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})) // Using Debug level for more verbose output during dev
+	slog.SetDefault(logger)
+
+	// Define flags
+	flag.StringVar(&proxyListenAddr, "listen-addr", defaultProxyListenAddr, "Proxy listen address and port (e.g., :8080). Env: PROXY_LISTEN_ADDR")
+	flag.StringVar(&buildkitdStatefulSetName, "sts-name", defaultBuildkitdStatefulSetName, "Name of the buildkitd StatefulSet. Env: BUILDKITD_STATEFULSET_NAME")
+	flag.StringVar(&buildkitdNamespace, "sts-namespace", defaultBuildkitdNamespace, "Namespace of the buildkitd StatefulSet. Env: BUILDKITD_STATEFULSET_NAMESPACE")
+	flag.StringVar(&buildkitdHeadlessSvcName, "headless-service-name", defaultBuildkitdHeadlessSvcName, "Name of the buildkitd Headless Service. Env: BUILDKITD_HEADLESS_SERVICE_NAME")
+	flag.StringVar(&buildkitdTargetPort, "target-port", defaultBuildkitdTargetPort, "Target port on buildkitd pods. Env: BUILDKITD_TARGET_PORT")
+	scaleDownIdleTimeoutStr := flag.String("idle-timeout", defaultScaleDownIdleTimeoutStr, "Duration for scale-down idle timer (e.g., 2m0s). Env: SCALE_DOWN_IDLE_TIMEOUT")
+
+	defaultKubeconfig := ""
+	if home := homeDir(); home != "" {
+		defaultKubeconfig = filepath.Join(home, ".kube", "config")
+	}
+	flag.StringVar(&kubeconfigPath, "kubeconfig", defaultKubeconfig, "Path to the kubeconfig file (for out-of-cluster development). Env: KUBECONFIG_PATH")
+
+	flag.Parse()
+
+	// Override with environment variables if set
+	if envVal := os.Getenv("PROXY_LISTEN_ADDR"); envVal != "" {
+		proxyListenAddr = envVal
+	}
+	if envVal := os.Getenv("BUILDKITD_STATEFULSET_NAME"); envVal != "" {
+		buildkitdStatefulSetName = envVal
+	}
+	if envVal := os.Getenv("BUILDKITD_STATEFULSET_NAMESPACE"); envVal != "" {
+		buildkitdNamespace = envVal
+	}
+	if envVal := os.Getenv("BUILDKITD_HEADLESS_SERVICE_NAME"); envVal != "" {
+		buildkitdHeadlessSvcName = envVal
+	}
+	if envVal := os.Getenv("BUILDKITD_TARGET_PORT"); envVal != "" {
+		buildkitdTargetPort = envVal
+	}
+	if envVal := os.Getenv("SCALE_DOWN_IDLE_TIMEOUT"); envVal != "" {
+		*scaleDownIdleTimeoutStr = envVal
+	}
+	if envVal := os.Getenv("KUBECONFIG_PATH"); envVal != "" {
+		kubeconfigPath = envVal
+	}
 
 	var err error
-	kubeClientset, err = InitKubeClient()
+	scaleDownIdleTimeout, err = time.ParseDuration(*scaleDownIdleTimeoutStr)
 	if err != nil {
-		log.Fatalf("Failed to initialize Kubernetes client: %v. This service requires K8s.", err)
+		logger.Error("Invalid SCALE_DOWN_IDLE_TIMEOUT value", "value", *scaleDownIdleTimeoutStr, "error", err)
+		os.Exit(1)
 	}
-	log.Println("Successfully initialized Kubernetes client.")
+
+	logger.Info("Configuration loaded",
+		"listenAddr", proxyListenAddr,
+		"stsName", buildkitdStatefulSetName,
+		"stsNamespace", buildkitdNamespace,
+		"headlessSvc", buildkitdHeadlessSvcName,
+		"targetPort", buildkitdTargetPort,
+		"idleTimeout", scaleDownIdleTimeout,
+		"kubeconfig", kubeconfigPath,
+	)
+
+	kubeClientset, err = InitKubeClient(kubeconfigPath)
+	if err != nil {
+		logger.Error("Failed to initialize Kubernetes client. This service requires K8s.", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("Successfully initialized Kubernetes client.")
 
 	// Initial check: if buildkitd is scaled to 0, ensure it is.
-	// This handles cases where the autoscaler might have crashed and restarted
-	// while buildkitd was running. For simplicity, we'll assume it should be 0
-	// if no connections are immediately present. A more robust solution might
-	// check last known state or rely on existing connections to trigger scale up.
 	currentStatus, err := GetStatefulSetStatus(kubeClientset, buildkitdNamespace, buildkitdStatefulSetName)
 	if err == nil && currentStatus.ReadyReplicas > 0 && activeConnectionCount.Load() == 0 {
-		log.Printf("Initial state: %d ready replicas found with 0 active connections. Initiating scale down to 0.", currentStatus.ReadyReplicas)
+		logger.Info("Initial state: ready replicas found with 0 active connections. Initiating scale down to 0.",
+			"readyReplicas", currentStatus.ReadyReplicas,
+			"statefulSet", buildkitdStatefulSetName,
+			"namespace", buildkitdNamespace,
+		)
 		_, scaleErr := ScaleStatefulSet(kubeClientset, buildkitdNamespace, buildkitdStatefulSetName, 0)
 		if scaleErr != nil {
-			log.Printf("Error during initial scale down: %v", scaleErr)
+			logger.Error("Error during initial scale down", "error", scaleErr, "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 		} else {
-			log.Printf("Successfully scaled down %s/%s to 0 replicas on startup.", buildkitdNamespace, buildkitdStatefulSetName)
+			logger.Info("Successfully scaled down StatefulSet to 0 replicas on startup.", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 		}
 	} else if err != nil {
-		log.Printf("Could not get initial status for %s/%s: %v. Assuming 0 replicas.", buildkitdNamespace, buildkitdStatefulSetName, err)
+		logger.Warn("Could not get initial status for StatefulSet. Assuming 0 replicas.", "error", err, "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 	}
 
-	listener, err := net.Listen("tcp", listenAddr)
+	listener, err := net.Listen("tcp", proxyListenAddr)
 	if err != nil {
-		log.Fatalf("Failed to listen on %s: %v", listenAddr, err)
+		logger.Error("Failed to listen on address", "address", proxyListenAddr, "error", err)
+		os.Exit(1)
 	}
-	defer listener.Close()
-	log.Printf("TCP proxy listening on %s for Buildkitd service %s/%s", listenAddr, buildkitdNamespace, buildkitdStatefulSetName)
+	// defer listener.Close() // Moved to shutdown logic
+
+	logger.Info("TCP proxy listening", "address", proxyListenAddr, "for_statefulset", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
+
+	// Graceful shutdown handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		logger.Info("Shutdown signal received, initiating graceful shutdown...", "signal", sig.String())
+
+		// 1. Close the listener
+		if err := listener.Close(); err != nil {
+			logger.Error("Error closing network listener", "error", err)
+		}
+
+		// 2. Wait for active connections to finish with a timeout
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancelShutdown()
+
+		done := make(chan struct{})
+		go func() {
+			logger.Info("Waiting for active connections to close...", "count", activeConnectionCount.Load())
+			shutdownWg.Wait() // shutdownWg is incremented for each handleConnection
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			logger.Info("All active connections closed gracefully.")
+		case <-shutdownCtx.Done():
+			logger.Warn("Shutdown timeout reached, some connections may have been cut short.", "remaining_connections", activeConnectionCount.Load())
+		}
+
+		logger.Info("Graceful shutdown complete.")
+		os.Exit(0)
+	}()
 
 	for {
 		clientConn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Failed to accept connection: %v", err)
+			// Check if the error is due to the listener being closed during shutdown
+			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
+				logger.Info("Listener closed, shutting down accept loop.")
+				break // Exit loop if listener is closed
+			}
+			logger.Warn("Failed to accept connection", "error", err)
 			continue
 		}
+		shutdownWg.Add(1) // Increment for the new connection
 		go handleConnection(clientConn)
 	}
+	logger.Info("Exited connection accept loop.")
 }
 
 func handleConnection(clientConn net.Conn) {
-	isFirstConnection := activeConnectionCount.Add(1) == 1
-	log.Printf("Accepted connection from %s. Active connections: %d", clientConn.RemoteAddr(), activeConnectionCount.Load())
+	defer shutdownWg.Done() // Decrement for graceful shutdown when connection handling finishes
+
+	remoteAddrStr := clientConn.RemoteAddr().String()
+	currentActive := activeConnectionCount.Add(1)
+	isFirstConnection := currentActive == 1
+
+	logger.Debug("Accepted connection", "remoteAddr", remoteAddrStr, "activeConnections", currentActive)
 
 	// Defer closing client connection and decrementing active connections
 	defer func() {
 		clientConn.Close()
-		if activeConnectionCount.Add(-1) == 0 {
+		newActiveCount := activeConnectionCount.Add(-1)
+		logger.Debug("Closed connection", "remoteAddr", remoteAddrStr, "activeConnections", newActiveCount)
+
+		if newActiveCount == 0 {
 			// Last connection closed, start scale-down timer
 			scaleDownTimerMutex.Lock()
 			if scaleDownTimer != nil {
+				logger.Debug("Stopping existing scale-down timer as a new one will be started or not needed.")
 				scaleDownTimer.Stop() // Stop any existing timer
 			}
-			log.Printf("Last connection closed. Starting scale-down timer for %v.", scaleDownIdleTimeout)
+			logger.Info("Last connection closed. Starting scale-down timer.", "duration", scaleDownIdleTimeout)
 			scaleDownTimer = time.AfterFunc(scaleDownIdleTimeout, func() {
 				scaleDownTimerMutex.Lock()
 				scaleDownTimer = nil // Timer has fired
 				scaleDownTimerMutex.Unlock()
 
 				if activeConnectionCount.Load() == 0 {
-					log.Printf("Scale-down timer fired. Initiating scale down to 0 for %s/%s.", buildkitdNamespace, buildkitdStatefulSetName)
+					logger.Info("Scale-down timer fired. Initiating scale down to 0.", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 					_, err := ScaleStatefulSet(kubeClientset, buildkitdNamespace, buildkitdStatefulSetName, 0)
 					if err != nil {
-						log.Printf("Failed to scale down StatefulSet %s/%s to 0: %v", buildkitdNamespace, buildkitdStatefulSetName, err)
+						logger.Error("Failed to scale down StatefulSet to 0.", "error", err, "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 					} else {
-						log.Printf("Successfully scaled down StatefulSet %s/%s to 0 replicas.", buildkitdNamespace, buildkitdStatefulSetName)
+						logger.Info("Successfully scaled down StatefulSet to 0 replicas.", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 					}
 				} else {
-					log.Printf("Scale-down timer fired, but active connections (%d) > 0. Scale down aborted.", activeConnectionCount.Load())
+					logger.Info("Scale-down timer fired, but active connections exist. Scale down aborted.", "activeConnections", activeConnectionCount.Load())
 				}
 			})
 			scaleDownTimerMutex.Unlock()
 		}
-		log.Printf("Closed connection from %s. Active connections: %d", clientConn.RemoteAddr(), activeConnectionCount.Load())
 	}()
 
 	// If this is the first connection, cancel any pending scale-down timer
 	if isFirstConnection {
 		scaleDownTimerMutex.Lock()
 		if scaleDownTimer != nil {
-			log.Println("First active connection. Cancelling scale-down timer.")
+			logger.Info("First active connection. Cancelling scale-down timer.")
 			scaleDownTimer.Stop()
 			scaleDownTimer = nil
 		}
@@ -138,33 +263,31 @@ func handleConnection(clientConn net.Conn) {
 	var targetAddr string
 	status, err := GetStatefulSetStatus(kubeClientset, buildkitdNamespace, buildkitdStatefulSetName)
 	if err != nil {
-		log.Printf("Failed to get status for StatefulSet %s/%s: %v. Closing connection.", buildkitdNamespace, buildkitdStatefulSetName, err)
-		return // Defer will close clientConn
+		logger.Error("Failed to get status for StatefulSet. Closing connection.", "error", err, "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace, "remoteAddr", remoteAddrStr)
+		return // Defer will close clientConn and decrement WaitGroup
 	}
 
-	log.Printf("StatefulSet %s/%s status: Desired=%d, Current=%d, Ready=%d",
-		buildkitdNamespace, buildkitdStatefulSetName, status.DesiredReplicas, status.CurrentReplicas, status.ReadyReplicas)
+	logger.Debug("StatefulSet status",
+		"statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace,
+		"desiredReplicas", status.DesiredReplicas, "currentReplicas", status.CurrentReplicas, "readyReplicas", status.ReadyReplicas)
 
 	if isFirstConnection && status.ReadyReplicas == 0 {
-		log.Printf("First connection and 0 ready replicas. Initiating scale up for %s/%s to 1 replica.", buildkitdNamespace, buildkitdStatefulSetName)
+		logger.Info("First connection and 0 ready replicas. Initiating scale up to 1 replica.", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 		_, err = ScaleStatefulSet(kubeClientset, buildkitdNamespace, buildkitdStatefulSetName, 1)
 		if err != nil {
-			log.Printf("Failed to scale StatefulSet %s/%s to 1: %v. Closing connection.", buildkitdNamespace, buildkitdStatefulSetName, err)
-			return // Defer will close clientConn
+			logger.Error("Failed to scale StatefulSet to 1. Closing connection.", "error", err, "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace, "remoteAddr", remoteAddrStr)
+			return
 		}
-		log.Printf("Successfully initiated scaling for %s/%s. Waiting for 1 ready replica...", buildkitdNamespace, buildkitdStatefulSetName)
+		logger.Info("Successfully initiated scaling. Waiting for 1 ready replica...", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 		err = WaitForStatefulSetReady(kubeClientset, buildkitdNamespace, buildkitdStatefulSetName, 1, waitForReadyTimeout)
 		if err != nil {
-			log.Printf("Error waiting for StatefulSet %s/%s to become ready (1 replica): %v. Closing connection.", buildkitdNamespace, buildkitdStatefulSetName, err)
-			return // Defer will close clientConn
+			logger.Error("Error waiting for StatefulSet to become ready (1 replica). Closing connection.", "error", err, "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace, "remoteAddr", remoteAddrStr)
+			return
 		}
-		log.Printf("StatefulSet %s/%s is ready with 1 replica.", buildkitdNamespace, buildkitdStatefulSetName)
+		logger.Info("StatefulSet is ready with 1 replica.", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace)
 	} else if status.ReadyReplicas == 0 {
-		// Not the first connection, but still 0 ready replicas. This implies a problem or a very racy condition.
-		// For robustness, we could attempt scale-up, but for now, we log and close.
-		// This might happen if scale-down occurred between connections very quickly, or STS is stuck.
-		log.Printf("Error: Non-first connection but 0 ready replicas for %s/%s. Waiting for scale-up or manual intervention. Closing connection.", buildkitdNamespace, buildkitdStatefulSetName)
-		return // Defer will close clientConn
+		logger.Error("Non-first connection but 0 ready replicas. Waiting for scale-up or manual intervention. Closing connection.", "statefulSet", buildkitdStatefulSetName, "namespace", buildkitdNamespace, "remoteAddr", remoteAddrStr, "activeConnections", currentActive)
+		return
 	}
 
 	// Construct target FQDN for buildkitd-0
@@ -174,31 +297,47 @@ func handleConnection(clientConn net.Conn) {
 		buildkitdNamespace,
 		buildkitdTargetPort)
 
-	log.Printf("Attempting to proxy connection for %s to %s", clientConn.RemoteAddr(), targetAddr)
-	targetConn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second) // Added timeout for dialing
+	logger.Debug("Attempting to proxy connection", "remoteAddr", remoteAddrStr, "targetAddr", targetAddr)
+	targetConn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
 	if err != nil {
-		log.Printf("Failed to connect to target %s: %v. Closing connection.", targetAddr, err)
-		return // Defer will close clientConn
+		logger.Error("Failed to connect to target. Closing connection.", "targetAddr", targetAddr, "error", err, "remoteAddr", remoteAddrStr)
+		return
 	}
-	log.Printf("Successfully connected to target %s for client %s", targetAddr, clientConn.RemoteAddr())
+	logger.Debug("Successfully connected to target", "targetAddr", targetAddr, "remoteAddr", remoteAddrStr)
 	defer targetConn.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	var copyWg sync.WaitGroup
+	copyWg.Add(2)
 
-	copyData := func(dst net.Conn, src net.Conn, connDesc string) {
-		defer wg.Done()
-		defer dst.Close() // Ensure the other side is closed if this copy finishes/errors
-		_, copyErr := io.Copy(dst, src)
+	copyData := func(dst net.Conn, src net.Conn, direction string) {
+		defer copyWg.Done()
+		// It's important NOT to close dst here if src is clientConn, as clientConn.Close is handled by the main defer.
+		// Similarly, targetConn.Close is handled by its own defer.
+		// Closing here can lead to "use of closed network connection" if the other copy operation is still running.
+		// The primary responsibility for closing connections lies with their respective defer statements in handleConnection.
+
+		bytesCopied, copyErr := io.Copy(dst, src)
+		logger.Debug("Data copy operation finished.", "direction", direction, "bytesCopied", bytesCopied, "remoteAddr", remoteAddrStr, "targetAddr", targetAddr)
 		if copyErr != nil && copyErr != io.EOF {
-			log.Printf("Error copying data for %s (%s <-> %s): %v", connDesc, src.RemoteAddr(), dst.RemoteAddr(), copyErr)
+			// Check if the error is "use of closed network connection", which might be expected if the other side closed.
+			if opError, ok := copyErr.(*net.OpError); ok && opError.Err.Error() == "use of closed network connection" {
+				logger.Debug("Copy error: use of closed network connection (likely expected).", "direction", direction, "error", copyErr)
+			} else {
+				logger.Warn("Error copying data.", "direction", direction, "error", copyErr, "remoteAddr", remoteAddrStr, "targetAddr", targetAddr)
+			}
 		}
-		// log.Printf("Finished copying for %s (%s <-> %s)", connDesc, src.RemoteAddr(), dst.RemoteAddr())
+		// Attempt to close the write side of the connection to signal the other end if it's a TCPConn
+		if tcpDst, ok := dst.(*net.TCPConn); ok {
+			tcpDst.CloseWrite()
+		}
+		if tcpSrc, ok := src.(*net.TCPConn); ok {
+			tcpSrc.CloseRead()
+		}
 	}
 
-	go copyData(targetConn, clientConn, fmt.Sprintf("client %s to target %s", clientConn.RemoteAddr(), targetAddr))
-	go copyData(clientConn, targetConn, fmt.Sprintf("target %s to client %s", targetAddr, clientConn.RemoteAddr()))
+	go copyData(targetConn, clientConn, fmt.Sprintf("client_to_target (client: %s, target: %s)", remoteAddrStr, targetAddr))
+	go copyData(clientConn, targetConn, fmt.Sprintf("target_to_client (target: %s, client: %s)", targetAddr, remoteAddrStr))
 
-	wg.Wait()
-	log.Printf("Data transfer complete for client %s and target %s.", clientConn.RemoteAddr(), targetAddr)
+	copyWg.Wait()
+	logger.Debug("Data transfer complete.", "remoteAddr", remoteAddrStr, "targetAddr", targetAddr)
 }

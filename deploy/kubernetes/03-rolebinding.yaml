@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: buildkitd-autoscaler-rb
+  namespace: default # Or buildkitd-scaler-system
+subjects:
+- kind: ServiceAccount
+  name: buildkitd-autoscaler-sa
+  namespace: default # Or buildkitd-scaler-system
+roleRef:
+  kind: Role
+  name: buildkitd-autoscaler-role
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd-autoscaler
+  namespace: default # Or buildkitd-scaler-system
+  labels:
+    app: buildkitd-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: buildkitd-autoscaler
+  template:
+    metadata:
+      labels:
+        app: buildkitd-autoscaler
+    spec:
+      serviceAccountName: buildkitd-autoscaler-sa
+      containers:
+      - name: autoscaler
+        image: your-dockerhub-username/buildkitd-autoscaler:latest # Replace with your image
+        imagePullPolicy: Always # Or IfNotPresent
+        ports:
+        - containerPort: 8080 # Should match the default/configured PROXY_LISTEN_ADDR port
+        env:
+        # Set these according to your target buildkitd setup
+        - name: PROXY_LISTEN_ADDR
+          value: ":8080"
+        - name: BUILDKITD_STATEFULSET_NAME
+          value: "buildkitd" # Example
+        - name: BUILDKITD_STATEFULSET_NAMESPACE
+          value: "default"  # Example, ensure this matches Role/RoleBinding namespace
+        - name: BUILDKITD_HEADLESS_SERVICE_NAME
+          value: "buildkitd-headless" # Example
+        - name: BUILDKITD_TARGET_PORT
+          value: "1234" # buildkitd's actual gRPC port, e.g. 1234 or 8273. Default in code is 8273
+        - name: SCALE_DOWN_IDLE_TIMEOUT
+          value: "2m0s"
+        # Add resource requests and limits as per Task 6.3 (can be placeholders for now)
+        # resources:
+        #   requests:
+        #     cpu: "100m"
+        #     memory: "64Mi"
+        #   limits:
+        #     cpu: "200m"
+        #     memory: "128Mi"
