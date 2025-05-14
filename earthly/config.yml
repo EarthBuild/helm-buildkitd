@@ -1,0 +1,8 @@
+global:
+    disable_log_sharing: true
+    buildkit_host: 'tcp://my-repo-buildkitd.dev.steady-fast.net:8372'
+    tls_enabled: false
+git:
+    github.com:
+        auth: ssh
+        user: git
