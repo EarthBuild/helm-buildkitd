@@ -43,7 +43,7 @@ spec:
             - name: BUILDKITD_TARGET_PORT
               value: {{ .Values.buildkitd.service.port | toString | quote }}
             - name: SCALE_DOWN_IDLE_TIMEOUT
-              value: {{ .Values.autoscaler.autoscalerConfig.idleTimeout | quote }}
+              value: {{ .Values.autoscaler.autoscalerConfig.idleTimeout | default "2m0s" | quote }}
             - name: READY_WAIT_TIMEOUT
               value: {{ .Values.autoscaler.autoscalerConfig.readyWaitTimeout | quote }}
             {{- if .Values.autoscaler.autoscalerConfig.logLevel }}

@@ -3,16 +3,16 @@ kind: Service
 metadata:
   name: {{ include "buildkitd-stack.autoscaler.fullname" . }}
   labels:
-    {{- include "buildkitd-stack.autoscaler.labels" . | nindent 4 }}
+    {{ include "buildkitd-stack.autoscaler.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.autoscaler.service.type }}
   ports:
     - port: {{ .Values.autoscaler.service.port }}
-      targetPort: {{ .Values.autoscaler.service.targetPort }}
+      targetPort: {{ trimPrefix ":" (.Values.autoscaler.autoscalerConfig.listenAddr | default ":8080") | atoi }}
       protocol: TCP
       name: proxy
-      {{- if and (eq .Values.autoscaler.service.type "NodePort") .Values.autoscaler.service.nodePort }}
+      {{ if and (eq .Values.autoscaler.service.type "NodePort") .Values.autoscaler.service.nodePort }}
       nodePort: {{ .Values.autoscaler.service.nodePort }}
-      {{- end }}
+      {{ end }}
   selector:
-    {{- include "buildkitd-stack.autoscaler.selectorLabels" . | nindent 4 }}
+    {{ include "buildkitd-stack.autoscaler.selectorLabels" . | nindent 4 }}

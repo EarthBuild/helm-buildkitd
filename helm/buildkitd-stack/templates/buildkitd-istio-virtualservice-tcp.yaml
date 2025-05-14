@@ -2,7 +2,7 @@
 apiVersion: networking.istio.io/v1beta1 # Using v1beta1, common for Istio resources
 kind: VirtualService
 metadata:
-  name: {{ include "buildkitd-stack.buildkitd.fullname" . }}
+  name: {{ printf "%s-entrypoint" (include "buildkitd-stack.autoscaler.fullname" .) }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "buildkitd-stack.buildkitd.labels" . | nindent 4 }}
@@ -20,7 +20,7 @@ spec:
     - port: {{ .Values.buildkitd.service.port }}
     route:
     - destination:
-        host: {{ include "buildkitd-stack.buildkitd.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+        host: {{ include "buildkitd-stack.autoscaler.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
         port:
-          number: {{ .Values.buildkitd.service.port }}
+          number: {{ .Values.autoscaler.service.port }}
 {{- end }}
