@@ -1,0 +1,19 @@
+{{- define "buildkitd-stack.buildkitd.connectInstructions" -}}
+Your buildkitd instance '{{ .Release.Name }}' has been deployed.
+
+It can be accessed within your cluster via the service:
+  {{ include "buildkitd-stack.buildkitd.fullname" . }}:{{ .Values.buildkitd.service.port }}
+
+Example using buildctl (ensure buildctl is configured to connect to this address):
+  export BUILDKIT_HOST=tcp://{{ include "buildkitd-stack.buildkitd.fullname" . }}:{{ .Values.buildkitd.service.port }}
+  buildctl du
+
+For more information on using buildkitd, please refer to the official documentation:
+https://github.com/moby/buildkit
+{{- end -}}
+
+{{- if .Values.buildkitd.service.type -}}
+{{- if (eq .Values.buildkitd.service.type "ClusterIP") -}}
+{{ template "buildkitd-stack.buildkitd.connectInstructions" . }}
+{{- end -}}
+{{- end -}}

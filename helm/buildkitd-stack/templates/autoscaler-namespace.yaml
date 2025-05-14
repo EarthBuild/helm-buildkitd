@@ -1,0 +1,10 @@
+{{- if .Values.autoscaler.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.autoscaler.namespace.name | default .Release.Namespace }}
+  labels:
+    {{- include "buildkitd-stack.autoscaler.labels" . | nindent 4 }}
+    # You can add more specific labels for the namespace if needed
+    # example.com/custom-label: "my-value"
+{{- end }}

@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "buildkitd-stack.autoscaler.fullname" . }}
+  labels:
+    {{- include "buildkitd-stack.autoscaler.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.autoscaler.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "buildkitd-stack.autoscaler.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "buildkitd-stack.autoscaler.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.autoscaler.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "buildkitd-stack.autoscaler.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.autoscaler.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ include "buildkitd-stack.autoscaler.name" . }}
+          securityContext:
+            {{- toYaml .Values.autoscaler.securityContext | nindent 12 }}
+          image: "{{ .Values.autoscaler.image.repository }}:{{ .Values.autoscaler.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.autoscaler.image.pullPolicy }}
+          ports:
+            - name: proxy
+              containerPort: {{ trimPrefix ":" (.Values.autoscaler.autoscalerConfig.listenAddr | default ":8080") | atoi }} # Extracts port from e.g. ":8080"
+              protocol: TCP
+          env:
+            - name: BUILDKITD_STATEFULSET_NAME
+              value: {{ include "buildkitd-stack.buildkitd.fullname" . | quote }}
+            - name: BUILDKITD_STATEFULSET_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: BUILDKITD_HEADLESS_SERVICE_NAME
+              value: {{ include "buildkitd-stack.buildkitd.headlessServiceName" . | quote }}
+            - name: PROXY_LISTEN_ADDR
+              value: {{ .Values.autoscaler.autoscalerConfig.listenAddr | default ":8080" | quote }}
+            - name: BUILDKITD_TARGET_PORT
+              value: {{ .Values.buildkitd.service.port | toString | quote }}
+            - name: SCALE_DOWN_IDLE_TIMEOUT
+              value: {{ .Values.autoscaler.autoscalerConfig.idleTimeout | quote }}
+            - name: READY_WAIT_TIMEOUT
+              value: {{ .Values.autoscaler.autoscalerConfig.readyWaitTimeout | quote }}
+            {{- if .Values.autoscaler.autoscalerConfig.logLevel }}
+            - name: LOG_LEVEL
+              value: {{ .Values.autoscaler.autoscalerConfig.logLevel | quote }}
+            {{- end }}
+            {{- if .Values.autoscaler.autoscalerConfig.kubeconfigPath }}
+            - name: KUBECONFIG_PATH
+              value: {{ .Values.autoscaler.autoscalerConfig.kubeconfigPath | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.autoscaler.resources | nindent 12 }}
+      {{- with .Values.autoscaler.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.autoscaler.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.autoscaler.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "buildkitd-stack.buildkitd.headlessServiceName" . }}
+  labels:
+    {{- include "buildkitd-stack.buildkitd.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None # This makes the service headless
+  ports:
+    - port: {{ .Values.buildkitd.service.port }}
+      targetPort: {{ .Values.buildkitd.service.portName | default .Values.buildkitd.service.port }} # Or directly the port number if targetPort isn't explicitly different
+      protocol: TCP
+      name: {{ .Values.buildkitd.service.portName | default "grpc" }}
+  selector:
+    {{- include "buildkitd-stack.buildkitd.selectorLabels" . | nindent 4 }}

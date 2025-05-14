@@ -1,0 +1,26 @@
+{{- if .Values.buildkitd.istio.enabled }}
+apiVersion: networking.istio.io/v1beta1 # Using v1beta1, common for Istio resources
+kind: VirtualService
+metadata:
+  name: {{ include "buildkitd-stack.buildkitd.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildkitd-stack.buildkitd.labels" . | nindent 4 }}
+    # Add any Istio-specific labels if needed
+    # app.kubernetes.io/component: istio-integration
+spec:
+  hosts:
+    # The hostname through which the service will be accessible internally
+    - "{{ printf "%s.%s" (include "buildkitd-stack.buildkitd.fullname" .) .Values.buildkitd.istio.internalDomain }}"
+  gateways:
+    # Bind to the specified internal Istio gateway
+    - {{ .Values.buildkitd.istio.internalGateway }}
+  tcp:
+  - match:
+    - port: {{ .Values.buildkitd.service.port }}
+    route:
+    - destination:
+        host: {{ include "buildkitd-stack.buildkitd.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: {{ .Values.buildkitd.service.port }}
+{{- end }}

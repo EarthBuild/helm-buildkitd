@@ -1,0 +1,17 @@
+{{- if .Values.autoscaler.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1 # Assuming v1, adjust if needed based on original chart or cluster version
+kind: Role
+metadata:
+  name: {{ include "buildkitd-stack.autoscaler.fullname" . }}
+  labels:
+    {{- include "buildkitd-stack.autoscaler.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+# Optional: Add "pods" if deeper inspection is ever needed.
+# You could make this conditional based on a value in values.yaml if desired.
+# - apiGroups: [""]
+#   resources: ["pods"]
+#   verbs: ["get", "list", "watch"]
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: buildkitd-stack
+description: A Helm chart for deploying buildkitd with an autoscaler.
+type: application
+version: 0.1.0
+appVersion: "1.0.0" # This can be updated later

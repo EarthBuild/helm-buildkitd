@@ -1,0 +1,192 @@
+# Global values for the buildkitd-stack chart.
+buildkitd:
+# Values for the buildkitd component (StatefulSet, Service, etc.)
+  # Original chart values from earthly/buildkitd are nested here.
+  # Example:
+  # replicaCount: 1
+  # image:
+  #   repository: earthly/buildkitd
+  #   tag: "v0.13.1"
+  # service:
+  #   port: 8372 # Ensure this is the port buildkitd listens on
+  #   portName: grpc
+  # ... other buildkitd values ...
+  # Default values for buildkitd chart.
+  # This is a YAML-formatted file.
+  # Declare variables to be passed into your templates.
+
+  .datadog:
+    labels:
+      tags.datadoghq.com/version: 1.0.0-0.1.0
+
+  replicaCount: 1
+  image:
+    repository: earthly/buildkitd
+    # renovate: datasource=docker depName=earthly/buildkitd
+    tag: "v0.8.15" # Specify a recent stable tag for earthly/buildkitd. v0.13.1 as of May 2025.
+    pullPolicy: IfNotPresent
+  # Pod security context
+  # fsGroup can be set here if needed
+  podSecurityContext: {}
+  #  fsGroup: 1001
+
+  # Container security context
+  # Privileged mode is required for buildkitd
+  containerSecurityContext:
+    privileged: true
+  # Resource requests and limits for the buildkitd container
+  # It's highly recommended to set these according to your cluster capacity and workload
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+  # Persistence configuration for buildkitd cache
+  persistence:
+    enabled: true
+    # storageClassName: "" # Set to your preferred StorageClass (e.g., "gp3", "standard-rwo"). If "", uses default.
+    storageClassName: "aws-gp3" # Example: use "gp3" for AWS EBS gp3 volumes
+    size: 50Gi
+    accessModes:
+      - ReadWriteOnce
+    mountPath: /tmp/earthly # Default mount path for buildkitd cache
+  service:
+    type: ClusterIP
+    port: 8372 # Default buildkitd gRPC port
+    portName: grpc # Name for the service port
+    annotations: {}
+    #  key: value
+  # Additional environment variables to pass to the buildkitd container
+  # Example:
+  # extraEnvVars:
+  #   - name: BUILDKIT_CACHE_MAX_SIZE_MB
+  #     value: "10240" # 10GB
+  extraEnvVars: []
+  #  - name: SOME_OTHER_VAR
+  #    value: "some_value"
+
+  # Node selection constraints
+  # Istio integration settings
+  istio:
+    # Set to true to create an Istio VirtualService for exposing the TCP service internally
+    enabled: true
+    # The internal Istio gateway to bind the VirtualService to
+    internalGateway: "istio-ingress/o8t-internal" # Example from anonytome chart
+    # The internal domain for constructing the hostname
+    internalDomain: "dev.steady-fast.net" # Example from anonytome chart
+    # The VirtualService will expose the buildkitd service at:
+    # {{ include "buildkitd.fullname" . }}.{{ .Values.istio.internalDomain }}:{{ .Values.service.port }}
+  nodeSelector: {}
+  #  kubernetes.io/os: linux
+
+  # Tolerations for pod scheduling
+  tolerations: []
+  # - key: "key"
+  #   operator: "Exists"
+  #   effect: "NoSchedule"
+
+  # Affinity rules for pod scheduling
+  affinity: {}
+  #  podAntiAffinity:
+  #    preferredDuringSchedulingIgnoredDuringExecution:
+  #    - weight: 100
+  #      podAffinityTerm:
+  #        labelSelector:
+  #          matchExpressions:
+  #          - key: app.kubernetes.io/name
+  #            operator: In
+  #            values:
+  #            - {{ include "buildkitd.name" . }}
+  #          - key: app.kubernetes.io/instance
+  #            operator: In
+  #            values:
+  #            - {{ .Release.Name }}
+  #        topologyKey: kubernetes.io/hostname
+
+autoscaler:
+# Values for the buildkitd-autoscaler component
+  # Original chart values from buildkitd-autoscaler are nested here.
+  # Example:
+  # replicaCount: 1
+  # image:
+  #   repository: your-repo/buildkitd-autoscaler
+  #   tag: "latest"
+  # ... other autoscaler values ...
+  # Default values for buildkitd-autoscaler chart.
+  # This is a YAML-formatted file.
+  # Declare variables to be passed into your templates.
+
+  replicaCount: 1
+
+  image:
+    repository: 932043103545.dkr.ecr.us-west-2.amazonaws.com/buildkitd-proxy
+    pullPolicy: IfNotPresent
+    tag: c3dd5b59
+
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+
+  # Namespace to deploy all resources into. If not set, it defaults to the release namespace.
+  # If set, the 00-namespace.yaml template will try to create it if namespace.create is true.
+  namespaceOverride: buildkitd-scaler-system
+
+  namespace:
+    create: true # Set to true to create the namespace defined in namespaceOverride or a default one if namespaceOverride is empty.
+
+  serviceAccount:
+    # Specifies whether a service account should be created
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    # If not set and create is true, a name is generated using the fullname template
+    name: "buildkitd-autoscaler-sa"
+
+  rbac:
+    # Specifies whether RBAC resources (Role, RoleBinding) should be created
+    create: true
+
+  # Autoscaler application specific configuration
+  # These will be set as environment variables in the deployment
+  autoscalerConfig:
+    # proxyListenAddr for the proxy service (e.g., ":8080" or ":8372")
+    proxyListenAddr: ":8372"
+    # scaleDownIdleTimeout for scaling down (e.g., "2m0s")
+    scaleDownIdleTimeout: "2m0s"
+    # readyWaitTimeout for buildkitd to become ready (e.g., "5m0s")
+    readyWaitTimeout: "5m0s"
+    # Note: buildkitdStatefulSetName, buildkitdStatefulSetNamespace,
+    # buildkitdHeadlessServiceName, and buildkitdTargetPort are now
+    # automatically configured based on the 'buildkitd' section above
+    # and the release context.
+    # kubeconfigPath is typically not needed when running in-cluster
+    # kubeconfigPath: ""
+    logLevel: "debug" # Example, if you add log level config to the app
+
+  service:
+    type: LoadBalancer
+    port: 80 # External port for the LoadBalancer/NodePort
+    targetPort: 8372 # Internal port of the autoscaler (must match autoscalerConfig.proxyListenAddr port)
+    # nodePort: # Specify if service.type is NodePort
+
+  # Pod resource requests and limits
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with
+  # constrained resources, such as Minikube. If you do specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}

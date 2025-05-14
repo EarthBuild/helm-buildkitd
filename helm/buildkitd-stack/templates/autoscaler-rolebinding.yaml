@@ -1,0 +1,18 @@
+{{- if .Values.autoscaler.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1 # Assuming v1, adjust if needed
+kind: RoleBinding
+metadata:
+  name: {{ include "buildkitd-stack.autoscaler.fullname" . }}
+  labels:
+    {{- include "buildkitd-stack.autoscaler.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "buildkitd-stack.autoscaler.serviceAccountName" . }}
+  # namespace field for ServiceAccount subject is only needed if it's in a different namespace
+  # For a RoleBinding, the ServiceAccount is typically in the same namespace as the RoleBinding
+  # namespace: {{ .Release.Namespace }} # Or specific namespace if different
+roleRef:
+  kind: Role
+  name: {{ include "buildkitd-stack.autoscaler.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

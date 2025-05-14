@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "buildkitd-stack.buildkitd.fullname" . }}
+  labels:
+    {{- include "buildkitd-stack.buildkitd.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "buildkitd-stack.buildkitd.headlessServiceName" . }}
+  replicas: {{ .Values.buildkitd.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "buildkitd-stack.buildkitd.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "buildkitd-stack.buildkitd.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Critical: to get buildkit to access the outside world this needs to be set to the right interface from
+        # `kubectl exec -it my-repo-buildkitd-0 -n buildkitd-instances -c buildkitd -- ip addr`
+        # see: https://phabricator.wikimedia.org/T330433
+        traffic.sidecar.istio.io/kubevirtInterfaces: "cni0"
+    spec:
+      securityContext:
+        {{- .Values.buildkitd.podSecurityContext | toYaml | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.buildkitd.image.repository }}:{{ .Values.buildkitd.image.tag }}"
+          imagePullPolicy: {{ .Values.buildkitd.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.buildkitd.containerSecurityContext | nindent 12 }}
+          env:
+            - name: BUILDKIT_TCP_TRANSPORT_ENABLED
+              value: "true"
+            - name: BUILDKIT_TLS_ENABLED
+              value: "false"
+            {{- if .Values.buildkitd.extraEnvVars }}
+            {{- .Values.buildkitd.extraEnvVars | toYaml | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: {{ .Values.buildkitd.service.portName }}
+              containerPort: {{ .Values.buildkitd.service.port }}
+              protocol: TCP
+          volumeMounts:
+            - name: buildkitd-cache
+              mountPath: {{ .Values.buildkitd.persistence.mountPath }}
+          resources:
+            {{- toYaml .Values.buildkitd.resources | nindent 12 }}
+      nodeSelector:
+        {{- .Values.buildkitd.nodeSelector | toYaml | nindent 8 }}
+      tolerations:
+        {{- .Values.buildkitd.tolerations | toYaml | nindent 8 }}
+      affinity:
+        {{- .Values.buildkitd.affinity | toYaml | nindent 8 }}
+  {{- if .Values.buildkitd.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: buildkitd-cache
+      spec:
+        accessModes:
+          {{- toYaml .Values.buildkitd.persistence.accessModes | nindent 10 }}
+        {{- if .Values.buildkitd.persistence.storageClassName }}
+        storageClassName: {{ .Values.buildkitd.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.buildkitd.persistence.size }}
+  {{- end }}
