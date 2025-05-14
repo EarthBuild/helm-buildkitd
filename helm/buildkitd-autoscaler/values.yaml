@@ -5,10 +5,9 @@
 replicaCount: 1
 
 image:
-  repository: your-dockerhub-username/buildkitd-autoscaler # TODO: Update this
+  repository: 932043103545.dkr.ecr.us-west-2.amazonaws.com/buildkitd-proxy
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: c3dd5b59
 
 imagePullSecrets: []
 nameOverride: ""
@@ -16,7 +15,7 @@ fullnameOverride: ""
 
 # Namespace to deploy all resources into. If not set, it defaults to the release namespace.
 # If set, the 00-namespace.yaml template will try to create it if namespace.create is true.
-namespaceOverride: "" # e.g., "buildkitd-scaler-system"
+namespaceOverride: buildkitd-scaler-system
 
 namespace:
   create: true # Set to true to create the namespace defined in namespaceOverride or a default one if namespaceOverride is empty.
@@ -37,21 +36,21 @@ rbac:
 # Autoscaler application specific configuration
 # These will be set as environment variables in the deployment
 autoscalerConfig:
-  proxyListenAddr: ":8080"
+  proxyListenAddr: ":8372"
   buildkitdStatefulSetName: "buildkitd"
-  buildkitdStatefulSetNamespace: "default" # This should ideally match the release namespace or a specific target namespace
+  buildkitdStatefulSetNamespace: "default"
   buildkitdHeadlessServiceName: "buildkitd-headless"
   buildkitdTargetPort: "8273" # Default buildkitd gRPC port
   scaleDownIdleTimeout: "2m0s"
   readyWaitTimeout: "5m0s"
   # kubeconfigPath is typically not needed when running in-cluster
   # kubeconfigPath: ""
-  logLevel: "info" # Example, if you add log level config to the app
+  logLevel: "debug" # Example, if you add log level config to the app
 
 service:
   type: LoadBalancer
   port: 80 # External port for the LoadBalancer/NodePort
-  targetPort: 8080 # Internal port of the autoscaler (must match autoscalerConfig.proxyListenAddr port)
+  targetPort: 8372 # Internal port of the autoscaler (must match autoscalerConfig.proxyListenAddr port)
   # nodePort: # Specify if service.type is NodePort
 
 # Pod resource requests and limits
