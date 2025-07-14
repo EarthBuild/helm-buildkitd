@@ -1,0 +1,41 @@
+name: Buildkit proxy image build
+on:
+  workflow_call:
+    inputs:
+      destination_registry:
+        description: "Registry to push the image to, ie Dockerhub, ECR GHCR"
+        required: true
+        type: string
+      registry_user:
+        description: "The user to use for `docker login` to `inputs.destination_registry`"
+        required: true
+        type: string
+    secrets:
+      registry_password:
+        description: "The password to use for `docker login` to `inputs.destination_registry`"
+        required: true
+
+env:
+  FORCE_COLOR: 1
+  EARTHLY_CONFIG: "./earthly/config.yml"
+
+jobs:
+  build-images:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        with:
+          image: tonistiigi/binfmt:latest
+          platforms: arm64,amd64
+      - uses: earthbuild/actions-setup@main
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: "Registry Login"
+        run: |
+          echo "${{ secrets.registry_password }}" | docker login --username ${{ inputs.registry_user }} --password-stdin ${{ inputs.destination_registry }}
+      - name: Build the main image
+        id: build-image
+        run: |
+          earthly --push --ci +image --DEST_REGISTRY=${{ inputs.destination_registry }}

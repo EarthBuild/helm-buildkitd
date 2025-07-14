@@ -15,10 +15,7 @@ spec:
       labels:
         {{- include "buildkitd-stack.buildkitd.selectorLabels" . | nindent 8 }}
       annotations:
-        # Critical: to get buildkit to access the outside world this needs to be set to the right interface from
-        # `kubectl exec -it my-repo-buildkitd-0 -n buildkitd-instances -c buildkitd -- ip addr`
-        # see: https://phabricator.wikimedia.org/T330433
-        traffic.sidecar.istio.io/kubevirtInterfaces: "cni0"
+        {{- toYaml .Values.buildkitd.podAnnotations | nindent 8 }}
     spec:
       securityContext:
         {{- .Values.buildkitd.podSecurityContext | toYaml | nindent 8 }}

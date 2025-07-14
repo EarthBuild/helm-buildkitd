@@ -67,17 +67,14 @@ buildkitd:
   #  - name: SOME_OTHER_VAR
   #    value: "some_value"
 
+  # Pod annotations for the buildkitd StatefulSet
+  # Useful for Istio configuration or other integrations
+  # Example for Istio:
+  # podAnnotations:
+  #   traffic.sidecar.istio.io/kubevirtInterfaces: "cni0"
+  podAnnotations: {}
+
   # Node selection constraints
-  # Istio integration settings
-  istio:
-    # Set to true to create an Istio VirtualService for exposing the TCP service internally
-    enabled: true
-    # The internal Istio gateway to bind the VirtualService to
-    internalGateway: "istio-ingress/o8t-internal" # Example from anonytome chart
-    # The internal domain for constructing the hostname
-    internalDomain: "dev.steady-fast.net" # Example from anonytome chart
-    # The VirtualService will expose the buildkitd service at:
-    # {{ include "buildkitd.fullname" . }}.{{ .Values.istio.internalDomain }}:{{ .Values.service.port }}
   nodeSelector: {}
   #  kubernetes.io/os: linux
 
