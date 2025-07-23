@@ -45,6 +45,30 @@ The service is best deployed to a Kubernetes cluster using the provided Helm cha
 * A running Kubernetes cluster.
 * Your Docker image for the autoscaler pushed to a container registry.
 
+### Installing from OCI Registry (Recommended)
+
+The chart is published to GitHub Container Registry and can be installed directly:
+
+```bash
+# Install the chart
+helm install my-buildkitd-autoscaler oci://ghcr.io/earthbuild/charts/buildkitd-stack \
+  --version 1.0.0 \
+  --namespace buildkitd-scaler-system \
+  --create-namespace \
+  --set image.repository=your-repo/buildkitd-autoscaler \
+  --set image.tag=v1.0.0 \
+  --set autoscalerConfig.buildkitdStatefulSetNamespace=default \
+  --set autoscalerConfig.buildkitdStatefulSetName=buildkitd
+```
+
+To see available versions, you can use:
+```bash
+# List available versions (requires GitHub CLI or API access)
+gh api repos/earthbuild/buildkitd-proxy/packages/container/charts%2Fbuildkitd-stack/versions
+```
+
+### Installing from Local Source
+
 **Chart Location:**
 The Helm chart is located in the `helm/buildkitd-stack/` directory.
 
@@ -110,6 +134,15 @@ The Helm chart is located in the `helm/buildkitd-stack/` directory.
 
 **Upgrading the Chart:**
 
+From OCI registry:
+```bash
+helm upgrade my-buildkitd-autoscaler oci://ghcr.io/earthbuild/charts/buildkitd-stack \
+  --version 1.1.0 \
+  --namespace buildkitd-scaler-system \
+  -f my-custom-values.yaml # Or using --set
+```
+
+From local source:
 ```bash
 helm upgrade my-buildkitd-autoscaler ./helm/buildkitd-stack \
   --namespace buildkitd-scaler-system \
