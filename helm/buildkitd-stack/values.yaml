@@ -1,25 +1,21 @@
-# Global values for the buildkitd-stack chart.
 buildkitd:
 # Values for the buildkitd component (StatefulSet, Service, etc.)
-  # Original chart values from earthly/buildkitd are nested here.
-  # Example:
-  # replicaCount: 1
-  # image:
-  #   repository: earthly/buildkitd
-  #   tag: "v0.13.1"
-  # service:
-  #   port: 8372 # Ensure this is the port buildkitd listens on
-  #   portName: grpc
-  # ... other buildkitd values ...
-  # Default values for buildkitd chart.
-  # This is a YAML-formatted file.
-  # Declare variables to be passed into your templates.
 
-  .datadog:
-    labels:
-      tags.datadoghq.com/version: 1.0.0-0.1.0
+  # annotations: for the buildkitd StatefulSet
+  annotations: {}
 
-  replicaCount: 1
+  # dnsPolicy: for the buildkitd StatefulSet
+  dnsPolicy: ""
+  
+  # dnsConfig: for the buildkitd StatefulSet
+  dnsConfig: {}
+    # nameservers:
+    #   - 169.254.169.253 # AWS
+    #   - 1.1.1.1 # Cloudflare
+    #   - 8.8.8.8 # Google
+
+  # replicaCount: Number of replicas for the buildkitd StatefulSet to deploy initially
+  replicaCount: 0
   image:
     repository: earthly/buildkitd
     # renovate: datasource=docker depName=earthly/buildkitd
@@ -30,24 +26,34 @@ buildkitd:
   podSecurityContext: {}
   #  fsGroup: 1001
 
+  # initContainers: for the buildkitd StatefulSet
+  initContainers: []
+  # Example to enable qemu for multi-arch support
+  # The following will configure the node to support all architectures
+  # See https://github.com/moby/buildkit/blob/master/docs/multi-platform.md for more details
+    # - name: binfmt-enable-qemu
+    #   image: "tonistiigi/binfmt:qemu-v9.2.2"
+    #   securityContext:
+    #     privileged: true
+    #   command: ["binfmt", "-install", "all"]
+
   # Container security context
   # Privileged mode is required for buildkitd
   containerSecurityContext:
     privileged: true
   # Resource requests and limits for the buildkitd container
   # It's highly recommended to set these according to your cluster capacity and workload
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "1Gi"
-    limits:
-      cpu: "2000m"
-      memory: "4Gi"
+  resources: {}
+    # requests:
+    #   cpu: "500m"
+    #   memory: "1Gi"
+    # limits:
+    #   cpu: "2000m"
+    #   memory: "4Gi"
   # Persistence configuration for buildkitd cache
   persistence:
     enabled: true
-    # storageClassName: "" # Set to your preferred StorageClass (e.g., "gp3", "standard-rwo"). If "", uses default.
-    storageClassName: "aws-gp3" # Example: use "gp3" for AWS EBS gp3 volumes
+    storageClassName: "" # Set to your preferred StorageClass (e.g., "gp3", "standard-rwo"). If "", uses default.
     size: 50Gi
     accessModes:
       - ReadWriteOnce
@@ -66,6 +72,11 @@ buildkitd:
   extraEnvVars: []
   #  - name: SOME_OTHER_VAR
   #    value: "some_value"
+  # extraArgs: extra arguments for the container entrypoint
+  extraArgs: []
+  #  - pass
+  #  - some
+  #  - args
 
   # Pod annotations for the buildkitd StatefulSet
   # Useful for Istio configuration or other integrations
@@ -84,43 +95,34 @@ buildkitd:
   #   operator: "Exists"
   #   effect: "NoSchedule"
 
+  # Additional volumes to mount into the buildkitd container
+  # Example:
+  # volumes:
+  # - name: some-volume
+  #   emptyDir: {}
+  volumes: []
+  # Additional volume mounts to add to the buildkitd container
+  # Example:
+  # volumeMounts:
+  # - name: some-volume
+  #   mountPath: /some/path
+  volumeMounts: []
+
   # Affinity rules for pod scheduling
   affinity: {}
-  #  podAntiAffinity:
-  #    preferredDuringSchedulingIgnoredDuringExecution:
-  #    - weight: 100
-  #      podAffinityTerm:
-  #        labelSelector:
-  #          matchExpressions:
-  #          - key: app.kubernetes.io/name
-  #            operator: In
-  #            values:
-  #            - {{ include "buildkitd.name" . }}
-  #          - key: app.kubernetes.io/instance
-  #            operator: In
-  #            values:
-  #            - {{ .Release.Name }}
-  #        topologyKey: kubernetes.io/hostname
 
 autoscaler:
-# Values for the buildkitd-autoscaler component
-  # Original chart values from buildkitd-autoscaler are nested here.
-  # Example:
-  # replicaCount: 1
-  # image:
-  #   repository: your-repo/buildkitd-autoscaler
-  #   tag: "latest"
-  # ... other autoscaler values ...
-  # Default values for buildkitd-autoscaler chart.
-  # This is a YAML-formatted file.
-  # Declare variables to be passed into your templates.
+  annotations: {}
 
+  # replicaCount the number of autoscaler replicas to deploy
+  # The autoscaler does not currently support more than one replica.
+  # TODO: add support for multiple replicas
   replicaCount: 1
 
   image:
-    repository: 932043103545.dkr.ecr.us-west-2.amazonaws.com/buildkitd-proxy
+    repository: ghcr.io/o8t/buildkitd-proxy
     pullPolicy: IfNotPresent
-    tag: c3dd5b59
+    tag: v0.0.1
 
   imagePullSecrets: []
   nameOverride: ""
@@ -128,7 +130,7 @@ autoscaler:
 
   # Namespace to deploy all resources into. If not set, it defaults to the release namespace.
   # If set, the 00-namespace.yaml template will try to create it if namespace.create is true.
-  namespaceOverride: buildkitd-scaler-system
+  namespaceOverride: ""
 
   namespace:
     create: true # Set to true to create the namespace defined in namespaceOverride or a default one if namespaceOverride is empty.
@@ -140,7 +142,7 @@ autoscaler:
     annotations: {}
     # The name of the service account to use.
     # If not set and create is true, a name is generated using the fullname template
-    name: "buildkitd-autoscaler-sa"
+    name: ""
 
   rbac:
     # Specifies whether RBAC resources (Role, RoleBinding) should be created
@@ -155,35 +157,30 @@ autoscaler:
     scaleDownIdleTimeout: "2m0s"
     # readyWaitTimeout for buildkitd to become ready (e.g., "5m0s")
     readyWaitTimeout: "5m0s"
-    # Note: buildkitdStatefulSetName, buildkitdStatefulSetNamespace,
-    # buildkitdHeadlessServiceName, and buildkitdTargetPort are now
-    # automatically configured based on the 'buildkitd' section above
-    # and the release context.
-    # kubeconfigPath is typically not needed when running in-cluster
-    # kubeconfigPath: ""
     logLevel: "debug" # Example, if you add log level config to the app
 
   service:
-    type: LoadBalancer
-    port: 80 # External port for the LoadBalancer/NodePort
+    type: ClusterIP
+    port: 8372 # External port for the LoadBalancer/NodePort
     targetPort: 8372 # Internal port of the autoscaler (must match autoscalerConfig.proxyListenAddr port)
     # nodePort: # Specify if service.type is NodePort
 
   # Pod resource requests and limits
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with
-  # constrained resources, such as Minikube. If you do specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "32Mi"
-    limits:
-      cpu: "100m"
-      memory: "64Mi"
+  resources: {}
+    # requests:
+    #   cpu: "100m"
+    #   memory: "64Mi"
+    # limits:
+    #   cpu: "200m"
+    #   memory: "128Mi"
 
   nodeSelector: {}
 
   tolerations: []
 
   affinity: {}
+
+  extraArgs: []
+  #  - pass
+  #  - some
+  #  - args

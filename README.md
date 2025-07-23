@@ -28,7 +28,7 @@ The application can be configured using command-line flags or environment variab
 | `--sts-name`              | `BUILDKITD_STATEFULSET_NAME`        | Name of the buildkitd StatefulSet               | `buildkitd`    |
 | `--sts-namespace`         | `BUILDKITD_STATEFULSET_NAMESPACE`   | Namespace of the buildkitd StatefulSet          | `default`      |
 | `--headless-service-name` | `BUILDKITD_HEADLESS_SERVICE_NAME` | Name of the buildkitd Headless Service        | `buildkitd-headless` |
-| `--target-port`           | `BUILDKITD_TARGET_PORT`             | Target port on buildkitd pods                   | `8273`         |
+| `--target-port`           | `BUILDKITD_TARGET_PORT`             | Target port on buildkitd pods                   | `8372`         |
 | `--idle-timeout`          | `SCALE_DOWN_IDLE_TIMEOUT`           | Duration for scale-down idle timer              | `2m0s`         |
 | `--kubeconfig`            | `KUBECONFIG_PATH`                   | Path to kubeconfig file (for local development) | (none)         |
 | `--ready-wait-timeout`    | `READY_WAIT_TIMEOUT`                | Timeout for waiting for StatefulSet to be ready | `5m0s`         |
@@ -53,17 +53,35 @@ The Helm chart is located in the `helm/buildkitd-stack/` directory.
 1. **Configure Values:**
     * The primary way to configure the chart is by creating a custom `values.yaml` file or by setting values via the `--set` flag during installation.
     * Navigate to the chart directory: `cd helm/buildkitd-stack/`
-    * Review `values.yaml` for all available options. Key values you will likely need to customize:
-        * `image.repository`: Set this to your Docker image repository (e.g., `your-dockerhub-username/buildkitd-autoscaler`).
-        * `image.tag`: Set this to the tag of your Docker image (e.g., `v1.0.0` or the specific commit SHA).
-        * `namespaceOverride`: If you want to install the chart into a specific namespace (e.g., `buildkitd-scaler-system`), set this value. If `namespace.create` is true, Helm will attempt to create this namespace.
-        * `autoscalerConfig.buildkitdStatefulSetName`: Name of your target buildkitd StatefulSet.
-        * `autoscalerConfig.buildkitdStatefulSetNamespace`: Namespace where your buildkitd StatefulSet resides. This is important for the autoscaler to find and manage the correct StatefulSet.
-        * `autoscalerConfig.buildkitdHeadlessServiceName`: Name of the headless service for your buildkitd StatefulSet.
-        * `autoscalerConfig.buildkitdTargetPort`: The gRPC port your buildkitd instances listen on.
+    * Review `values.yaml` for all available options. Key configuration sections:
+
+    **Autoscaler Configuration:**
+        * `autoscaler.image.repository`: Docker image repository for the autoscaler (e.g., `your-repo/buildkitd-proxy`).
+        * `autoscaler.image.tag`: Tag of your autoscaler Docker image.
+        * `autoscaler.namespaceOverride`: Target namespace for deployment. If `autoscaler.namespace.create` is true, Helm will create this namespace.
+        * `autoscaler.autoscalerConfig.proxyListenAddr`: Proxy listen address and port (default: `:8372`).
+        * `autoscaler.autoscalerConfig.scaleDownIdleTimeout`: Duration for scale-down idle timer (default: `2m0s`).
+        * `autoscaler.autoscalerConfig.readyWaitTimeout`: Timeout for waiting for buildkitd to become ready (default: `5m0s`).
+        * `autoscaler.autoscalerConfig.logLevel`: Log level for the autoscaler (default: `debug`).
+        * `autoscaler.service.type`: Service type for the autoscaler (`ClusterIP`, `NodePort`, `LoadBalancer`).
+        * `autoscaler.service.port`: External port for the autoscaler service (default: `8372`).
+        * `autoscaler.resources`: CPU/memory requests and limits for the autoscaler pod.
+
+    **Buildkitd Configuration:**
+        * `buildkitd.replicaCount`: Initial number of replicas (default: `0` for scale-to-zero).
+        * `buildkitd.image.repository`: Docker image repository for buildkitd (default: `earthly/buildkitd`).
+        * `buildkitd.image.tag`: Tag of the buildkitd Docker image (default: `v0.8.15`).
+        * `buildkitd.persistence.enabled`: Enable persistent volume for buildkitd cache (default: `true`).
+        * `buildkitd.persistence.size`: Size of the persistent volume (default: `50Gi`).
+        * `buildkitd.persistence.storageClassName`: Storage class for the persistent volume.
+        * `buildkitd.service.port`: Port for buildkitd gRPC service (default: `8372`).
+        * `buildkitd.resources`: CPU/memory requests and limits for buildkitd pods.
         * `buildkitd.podAnnotations`: Pod annotations for buildkitd (useful for Istio integration).
-        * `service.type`, `service.port`: How the autoscaler proxy itself is exposed.
-        * `resources`: Adjust CPU/memory requests and limits for the autoscaler pod.
+        * `buildkitd.extraEnvVars`: Additional environment variables for buildkitd.
+        * `buildkitd.initContainers`: Init containers for buildkitd (e.g., for multi-arch support).
+        * `buildkitd.nodeSelector`: Node selection constraints.
+        * `buildkitd.tolerations`: Tolerations for pod scheduling.
+        * `buildkitd.affinity`: Affinity rules for pod scheduling.
 
 2. **Install the Chart:**
     Once you have your configuration ready (e.g., in a `my-custom-values.yaml` file or as `--set` parameters):
@@ -84,10 +102,10 @@ The Helm chart is located in the `helm/buildkitd-stack/` directory.
         helm install my-buildkitd-autoscaler ./helm/buildkitd-stack \
           --namespace buildkitd-scaler-system \
           --create-namespace \
-          --set image.repository=your-repo/buildkitd-autoscaler \
-          --set image.tag=v0.1.0 \
-          --set autoscalerConfig.buildkitdStatefulSetNamespace=default \
-          --set autoscalerConfig.buildkitdStatefulSetName=buildkitd
+          --set autoscaler.image.repository=your-repo/buildkitd-proxy \
+          --set autoscaler.image.tag=v0.1.0 \
+          --set autoscaler.autoscalerConfig.scaleDownIdleTimeout=5m0s \
+          --set buildkitd.persistence.size=100Gi
         ```
 
 **Upgrading the Chart:**
@@ -114,7 +132,7 @@ Once deployed, the `buildkitd-autoscaler` service (e.g., `buildkitd-proxy-servic
 * When the first client connects, the autoscaler will:
     1. Scale the target `buildkitd` StatefulSet to 1 replica (if it's currently at 0).
     2. Wait for the `buildkitd` pod to become ready.
-    3. Proxy the connection to the `buildkitd` pod (e.g., `buildkitd-0.buildkitd-headless.default.svc.cluster.local:8273`).
+    3. Proxy the connection to the `buildkitd` pod (e.g., `buildkitd-0.buildkitd-headless.default.svc.cluster.local:8372`).
 * Subsequent connections will be proxied directly as long as at least one `buildkitd` pod is ready.
 * When the last client disconnects, an idle timer (default 2 minutes) starts.
 * If no new connections are made before the timer expires, the autoscaler will scale the `buildkitd` StatefulSet back down to 0 replicas.
@@ -199,19 +217,14 @@ This service is currently a Proof of Concept (PoC) primarily focused on:
 
 ### Resource Requests and Limits
 
-The Kubernetes deployment manifest ([`deploy/kubernetes/04-deployment.yaml`](deploy/kubernetes/04-deployment.yaml:1)) includes default resource requests and limits for the autoscaler container:
+Default resource values are not provided to allow deployment in all environments. You will need to monitor the autoscaler's performance under your specific load and adjust these values accordingly.
 
+### Multi-arch Support
+
+In order to enable support for multiple architectures, the node must have QEMU enabled. The easiest way to this is to use [tonistiigi/binfmt](https://github.com/tonistiigi/binfmt). To ensure buildkit is always running on a node where QEMU is enabled, this can be run as an initContainer, e.g.
 ```yaml
-resources:
-  requests:
-    cpu: "50m"
-    memory: "32Mi"
-  limits:
-    cpu: "100m"
-    memory: "64Mi"
-```
 
-These are conservative starting values. You may need to monitor the autoscaler's performance under your specific load and adjust these values accordingly.
+```
 
 ### Potential Areas of Future Exploration
 

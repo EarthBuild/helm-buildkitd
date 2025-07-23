@@ -15,21 +15,27 @@ spec:
       labels:
         {{- include "buildkitd-stack.buildkitd.selectorLabels" . | nindent 8 }}
       annotations:
-        {{- toYaml .Values.buildkitd.podAnnotations | nindent 8 }}
+        {{- include "buildkitd-stack.buildkitd.annotations" . | nindent 8 }}
     spec:
+      {{- if .Values.buildkitd.initContainers }}
+      initContainers:
+        {{- .Values.buildkitd.initContainers | toYaml | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- .Values.buildkitd.podSecurityContext | toYaml | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.buildkitd.image.repository }}:{{ .Values.buildkitd.image.tag }}"
           imagePullPolicy: {{ .Values.buildkitd.image.pullPolicy }}
+          {{- if .Values.buildkitd.extraArgs }}
+          args:
+            {{- .Values.buildkitd.extraArgs | toYaml | nindent 12 }}
+          {{- end }}
           securityContext:
             {{- toYaml .Values.buildkitd.containerSecurityContext | nindent 12 }}
           env:
             - name: BUILDKIT_TCP_TRANSPORT_ENABLED
               value: "true"
-            - name: BUILDKIT_TLS_ENABLED
-              value: "false"
             {{- if .Values.buildkitd.extraEnvVars }}
             {{- .Values.buildkitd.extraEnvVars | toYaml | nindent 12 }}
             {{- end }}
@@ -40,14 +46,28 @@ spec:
           volumeMounts:
             - name: buildkitd-cache
               mountPath: {{ .Values.buildkitd.persistence.mountPath }}
+            {{- if .Values.buildkitd.volumeMounts }}
+            {{- .Values.buildkitd.volumeMounts | toYaml | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.buildkitd.resources | nindent 12 }}
+      {{- if .Values.buildkitd.volumes }}
+      volumes:
+        {{- .Values.buildkitd.volumes | toYaml | nindent 8 }}
+      {{- end }}
       nodeSelector:
         {{- .Values.buildkitd.nodeSelector | toYaml | nindent 8 }}
       tolerations:
         {{- .Values.buildkitd.tolerations | toYaml | nindent 8 }}
       affinity:
         {{- .Values.buildkitd.affinity | toYaml | nindent 8 }}
+      {{- if .Values.buildkitd.dnsPolicy }}
+      dnsPolicy: {{ .Values.buildkitd.dnsPolicy | quote }}
+      {{- end }}
+      {{- if .Values.buildkitd.dnsConfig }}
+      dnsConfig:
+        {{- .Values.buildkitd.dnsConfig | toYaml | nindent 8 }}
+      {{- end }}
   {{- if .Values.buildkitd.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:

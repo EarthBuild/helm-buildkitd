@@ -1,4 +1,13 @@
 {{/*
+Annotations for buildkitd component
+*/}}
+{{- define "buildkitd-stack.buildkitd.annotations" -}}
+{{- if .Values.buildkitd.annotations }}
+{{- .Values.buildkitd.annotations | toYaml }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Common labels for buildkitd component
 */}}
 {{- define "buildkitd-stack.buildkitd.labels" -}}

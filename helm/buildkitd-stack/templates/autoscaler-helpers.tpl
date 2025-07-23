@@ -1,4 +1,15 @@
 {{/*
+Annotations for autoscaler component
+*/}}
+{{- define "buildkitd-stack.autoscaler.annotations" -}}
+{{- if .Values.autoscaler.annotations }}
+{{ .Values.autoscaler.annotations | toYaml }}
+{{- else }}
+{}
+{{- end }}
+{{- end -}}
+
+{{/*
 Common labels for autoscaler component
 */}}
 {{- define "buildkitd-stack.autoscaler.labels" -}}

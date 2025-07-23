@@ -36,7 +36,7 @@ const (
 	// defaultBuildkitdNamespace is the default Kubernetes namespace for the BuildKitd StatefulSet.
 	defaultBuildkitdNamespace = "default"
 	// defaultBuildkitdTargetPort is the default target port on BuildKitd pods.
-	defaultBuildkitdTargetPort = "8273" // String for FQDN construction
+	defaultBuildkitdTargetPort = "8372" // String for FQDN construction
 	// defaultBuildkitdHeadlessSvcName is the default name of the BuildKitd headless service.
 	defaultBuildkitdHeadlessSvcName = "buildkitd-headless"
 	// defaultScaleDownIdleTimeoutStr is the default string representation of the idle timeout before scaling down.
