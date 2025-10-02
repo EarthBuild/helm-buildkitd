@@ -1,6 +1,22 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ]
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    'default:pinDigestsDisabled',
+    'security:openssf-scorecard',
+    ':semanticCommits'
+  ],
+  configMigration: true,
+  schedule: [
+    '* 0-3 * * *',
+  ],
+  dockerfile: {
+    managerFilePatterns: [
+      '/^Earthfile$/',
+      '/.*\\.earth$/',
+    ],
+  },
+  labels: [
+    'renovate',
+  ],
 }
