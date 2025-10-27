@@ -2,7 +2,7 @@ module go-buildkitd-proxy
 
 go 1.24.0
 
-toolchain go1.24.3
+toolchain go1.25.3
 
 require (
 	k8s.io/api v0.33.0
