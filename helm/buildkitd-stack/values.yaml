@@ -19,7 +19,7 @@ buildkitd:
   image:
     repository: earthly/buildkitd
     # renovate: datasource=docker depName=earthly/buildkitd
-    tag: "v0.8.15" # Specify a recent stable tag for earthly/buildkitd. v0.13.1 as of May 2025.
+    tag: "v0.8.16" # Specify a recent stable tag for earthly/buildkitd. v0.13.1 as of May 2025.
     pullPolicy: IfNotPresent
   # Pod security context
   # fsGroup can be set here if needed
