@@ -66,5 +66,5 @@ deps:
     RUN go mod download
 
 go:
-    FROM golang:1.24.3-alpine
+    FROM golang:1.25.4-alpine
 
